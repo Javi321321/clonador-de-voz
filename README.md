@@ -183,3 +183,11 @@ pip install "transformers>=4.40,<5.0"
 ```
 y volvé a correr `clonavoz run` (no hace falta reinstalar ni volver a descargar los
 modelos ya cacheados).
+
+**Error `torchcodec library is required for audio IO`** al sintetizar voz: a partir de
+PyTorch 2.9, `torchaudio` delegó la carga/escritura de audio a `torchcodec`, que
+`coqui-tts` no instala por defecto. El proyecto ya lo pide vía el extra `[codec]` en
+`requirements.txt`/`pyproject.toml`; si instalaste antes de ese cambio, corregilo con:
+```bash
+pip install "coqui-tts[codec]"
+```
