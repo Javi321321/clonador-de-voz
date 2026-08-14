@@ -171,3 +171,15 @@ Si planeas un uso comercial, revisa las licencias de NLLB-200 y XTTS-v2 antes.
   buena pero no es tu timbre.
 - El fallback Piper (`piper_fallback.py`) es la parte más nueva del código y puede
   necesitar ajustes menores según la versión de `piper-tts` instalada.
+
+## Solución de problemas
+
+**Error `cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils'`**
+al sintetizar voz: significa que se instaló una versión de `transformers` demasiado
+nueva para `coqui-tts`. El proyecto ya fija `transformers<5.0.0` en
+`requirements.txt`/`pyproject.toml`, pero si instalaste antes de ese cambio, corregilo con:
+```bash
+pip install "transformers>=4.40,<5.0"
+```
+y volvé a correr `clonavoz run` (no hace falta reinstalar ni volver a descargar los
+modelos ya cacheados).
