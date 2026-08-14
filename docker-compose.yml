@@ -1,0 +1,21 @@
+# Uso en Linux (nativo o WSL2 con PulseAudio):
+#   docker compose run --rm clonavoz devices
+#   docker compose run --rm clonavoz enroll --seconds 15
+#   docker compose run --rm clonavoz run --source-lang es --target-lang en
+#
+# Ajusta la ruta del socket de PulseAudio si tu usuario no es UID 1000
+# (verifica con: echo $XDG_RUNTIME_DIR, normalmente /run/user/<tu-uid>/pulse).
+#
+# En Windows/macOS, Docker Desktop no da acceso confiable al audio en
+# tiempo real del host: usa setup.ps1 / setup.sh en su lugar.
+services:
+  clonavoz:
+    build: .
+    volumes:
+      - ~/.clonavoz:/root/.clonavoz
+      - /run/user/1000/pulse:/run/user/1000/pulse
+    environment:
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+    devices:
+      - /dev/snd:/dev/snd
+    network_mode: host

@@ -42,31 +42,50 @@ de audio virtual a nivel de sistema operativo. Cualquier app que pueda elegir un
 micrófono (Zoom, Meet, Teams, Discord, Skype, lo que sea) puede usarlo como entrada —
 por eso funciona con **todo lo que exista**, sin plugins específicos por app.
 
-## Instalación
+## Instalación de un solo comando
 
-Requiere Python 3.10+.
+Requiere Python 3.10+. Los scripts detectan solos si tienes GPU NVIDIA e instalan el
+PyTorch correcto (CPU o CUDA) además del resto de dependencias.
 
+**Linux / macOS:**
 ```bash
 git clone <este repositorio>
 cd clonador-de-voz
-python -m venv .venv
-source .venv/bin/activate   # en Windows: .venv\Scripts\activate
-
-# 1) Instala PyTorch según tu hardware (importante hacerlo ANTES del resto):
-#    CPU (recomendado en laptops de bajos recursos):
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-#    GPU NVIDIA (recomendado en notebooks gamer con CUDA):
-#    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# 2) Instala el resto de dependencias y el proyecto
-pip install -r requirements.txt
-pip install -e .
+./setup.sh
+source .venv/bin/activate
 ```
+
+**Windows (PowerShell):**
+```powershell
+git clone <este repositorio>
+cd clonador-de-voz
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup.ps1
+.\.venv\Scripts\Activate.ps1
+```
+
+**Docker (Linux / WSL2 con PulseAudio, un solo comando, sin tocar Python del host):**
+```bash
+docker compose build
+docker compose run --rm clonavoz devices
+```
+En Windows/macOS, Docker Desktop no da acceso confiable al audio en tiempo real del
+host — en esos sistemas usa `setup.ps1`/`setup.sh` en lugar de Docker.
 
 La primera vez que uses cada idioma, se descargan sus modelos (Whisper, NLLB-200,
 XTTS-v2 y, si aplica, la voz Piper de respaldo) — en total pueden ser varios GB, y
 necesitas internet solo para esa descarga inicial. Después de eso, todo funciona sin
 conexión.
+
+### Instalación manual (alternativa a los scripts)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # en Windows: .venv\Scripts\activate
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu  # o /whl/cu121 con GPU NVIDIA
+pip install -r requirements.txt
+pip install -e .
+```
 
 ## Instalar el micrófono virtual (una vez, según tu sistema operativo)
 
