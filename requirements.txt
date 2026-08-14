@@ -1,0 +1,19 @@
+# Instala primero PyTorch según tu hardware (ver README), luego el resto:
+#
+#   CPU (recomendado en laptops de bajos recursos):
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+#
+#   GPU NVIDIA (recomendado en notebooks gamer con CUDA):
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+#   pip install -r requirements.txt
+
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24
+psutil>=5.9.0
+faster-whisper>=1.0.0
+transformers>=4.40.0
+sentencepiece>=0.2.0
+coqui-tts>=0.24.0
+piper-tts>=1.2.0
