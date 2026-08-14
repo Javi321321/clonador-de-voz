@@ -9,12 +9,12 @@ dependencies = [
     "soundfile>=0.12.1",
     "numpy>=1.24",
     "psutil>=5.9.0",
-    "torch>=2.1.0,<2.9.0",
-    "torchaudio>=2.1.0,<2.9.0",
+    "torch>=2.1.0",
+    "torchaudio>=2.1.0",
     "faster-whisper>=1.0.0",
     "transformers>=4.40.0,<5.0.0",
     "sentencepiece>=0.2.0",
-    "coqui-tts>=0.24.0",
+    "coqui-tts[codec]>=0.24.0",
     "piper-tts>=1.2.0",
 ]
 

@@ -18,16 +18,13 @@ python -m venv .venv
 & .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 
-# Se fija <2.9 a propósito: desde esa versión, torchaudio necesita
-# torchcodec, que en Windows requiere instalar FFmpeg como DLLs sueltas.
-# Evitamos ese lío quedándonos en la rama estable anterior.
 $hasNvidia = $null -ne (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
 if ($hasNvidia) {
     Write-Host "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA..."
-    pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cu121
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 } else {
     Write-Host "Sin GPU NVIDIA detectada: instalando PyTorch para CPU..."
-    pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cpu
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 }
 
 pip install -r requirements.txt
@@ -43,3 +40,6 @@ Write-Host "  clonavoz enroll --seconds 15"
 Write-Host "  clonavoz run --source-lang es --target-lang en"
 Write-Host ""
 Write-Host "Antes de 'run', instala VB-CABLE si no lo tienes: https://vb-audio.com/Cable/"
+Write-Host "IMPORTANTE: tambien necesitas FFmpeg instalado (ver seccion 'Instalar FFmpeg" -ForegroundColor Yellow
+Write-Host "en Windows' del README) o la sintesis de voz va a fallar con un error de" -ForegroundColor Yellow
+Write-Host "torchcodec/libtorchcodec." -ForegroundColor Yellow

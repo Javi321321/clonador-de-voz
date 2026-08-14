@@ -87,6 +87,31 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+## Instalar FFmpeg (necesario en Windows)
+
+Desde PyTorch 2.9 (obligatorio si tenés Python 3.13/3.14, ya que no hay builds de
+PyTorch anteriores para esas versiones), `torchaudio` necesita `torchcodec` para
+cargar y escribir audio, y `torchcodec` a su vez necesita FFmpeg. En Linux/macOS es
+un paquete común (`apt install ffmpeg` / `brew install ffmpeg`, `setup.sh` te avisa
+si falta). En Windows es más manual porque `torchcodec` necesita las **DLLs
+compartidas** de FFmpeg, no solo el `.exe`:
+
+1. Descargá el build "shared" (con DLLs) de FFmpeg para Windows, por ejemplo desde
+   https://github.com/BtbN/FFmpeg-Builds/releases/latest — buscá el archivo
+   `ffmpeg-master-latest-win64-gpl-shared.zip`.
+2. Extraelo a una carpeta fija, por ejemplo `C:\ffmpeg`.
+3. Agregá la subcarpeta `bin` (la que tiene archivos como `avcodec-XX.dll`) a tu
+   variable de entorno `PATH`. Desde PowerShell:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\ffmpeg\ffmpeg-master-latest-win64-gpl-shared\bin", "User")
+   ```
+   (ajustá la ruta exacta al nombre real de la subcarpeta que se extrajo).
+4. Cerrá y volvé a abrir PowerShell para que tome el `PATH` nuevo.
+
+Si te salteás este paso vas a ver un error `Could not load libtorchcodec` /
+`FFmpeg is not properly installed` al intentar sintetizar voz — ver la sección de
+Solución de problemas más abajo.
+
 ## Instalar el micrófono virtual (una vez, según tu sistema operativo)
 
 ### Windows
@@ -184,15 +209,16 @@ pip install "transformers>=4.40,<5.0"
 y volvé a correr `clonavoz run` (no hace falta reinstalar ni volver a descargar los
 modelos ya cacheados).
 
-**Error `torchcodec library is required for audio IO`** (o el error posterior
-`Could not load libtorchcodec` / `FFmpeg is not properly installed`) al sintetizar voz:
-a partir de PyTorch 2.9, `torchaudio` delegó la carga/escritura de audio a `torchcodec`,
-que en Windows necesita FFmpeg instalado como DLLs sueltas por separado — bastante lío
-para lo que vale. El proyecto evita todo esto fijando `torch<2.9`/`torchaudio<2.9` en
-`requirements.txt`/`pyproject.toml`/`setup.ps1`/`setup.sh`. Si instalaste antes de ese
-cambio, corregilo bajando de versión (no hace falta reinstalar nada más):
-```powershell
-pip uninstall -y torch torchaudio torchcodec
-pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cpu
+**Error `torchcodec library is required for audio IO`** al sintetizar voz: instalá
+el extra `[codec]` de coqui-tts (ya viene en `requirements.txt`/`pyproject.toml`; si
+instalaste antes de ese cambio):
+```bash
+pip install "coqui-tts[codec]"
 ```
-(cambiá `/cpu` por `/cu121` si usás GPU NVIDIA).
+
+**Error `Could not load libtorchcodec` / `FFmpeg is not properly installed`** al
+sintetizar voz (en Windows, típicamente después de instalar `torchcodec`): te falta
+FFmpeg como DLLs compartidas en el `PATH`. Seguí la sección **"Instalar FFmpeg
+(necesario en Windows)"** más arriba — no es un problema de versión de PyTorch, así
+que no sirve bajar de versión (además, en Python 3.13/3.14 no existen builds de
+PyTorch anteriores a la 2.9, que es justo la que introduce esta dependencia).
