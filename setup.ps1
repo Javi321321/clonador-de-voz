@@ -18,13 +18,16 @@ python -m venv .venv
 & .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 
+# Se fija <2.9 a propósito: desde esa versión, torchaudio necesita
+# torchcodec, que en Windows requiere instalar FFmpeg como DLLs sueltas.
+# Evitamos ese lío quedándonos en la rama estable anterior.
 $hasNvidia = $null -ne (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
 if ($hasNvidia) {
     Write-Host "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+    pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cu121
 } else {
     Write-Host "Sin GPU NVIDIA detectada: instalando PyTorch para CPU..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+    pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cpu
 }
 
 pip install -r requirements.txt

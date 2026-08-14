@@ -17,12 +17,15 @@ pip install --upgrade pip
 
 OS_NAME=$(uname -s)
 
+# Se fija <2.9 a propósito: desde esa versión, torchaudio necesita
+# torchcodec (que a su vez necesita FFmpeg aparte). Nos quedamos en la
+# rama estable anterior para evitar esa dependencia extra en todos los SO.
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     echo "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+    pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cu121
 else
     echo "Sin GPU NVIDIA detectada: instalando PyTorch para CPU..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+    pip install "torch<2.9,>=2.1.0" "torchaudio<2.9,>=2.1.0" --index-url https://download.pytorch.org/whl/cpu
 fi
 
 pip install -r requirements.txt
