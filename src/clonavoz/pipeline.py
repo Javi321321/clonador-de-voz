@@ -8,11 +8,14 @@ frase pueda estar transcribiéndose mientras la anterior todavía se está
 sintetizando: así se aprovecha el tiempo del CPU/GPU y se reduce la
 latencia percibida frente a procesar todo de forma estrictamente secuencial.
 
-La reproducción abre el dispositivo de salida recién con la primera frase
-sintetizada, porque la frecuencia de muestreo depende de si esa frase usó
-clonación de voz (XTTS, 24kHz) o la voz de respaldo (Piper, variable según
-el idioma) — y ese motor no cambia durante una sesión porque el idioma
-destino es fijo.
+La reproducción abre el dispositivo de salida una sola vez, a la frecuencia
+de muestreo *nativa* de ese dispositivo (no la que use el motor de síntesis,
+que puede ser 24kHz con XTTS o variable con Piper). Muchos dispositivos de
+audio en Windows (sobre todo por WASAPI, como el cable virtual VB-CABLE) solo
+aceptan la frecuencia con la que están configurados en el sistema — abrir el
+stream con cualquier otra frecuencia falla con "Invalid sample rate". Por eso
+cada frase generada se remuestrea a la frecuencia del dispositivo antes de
+reproducirla.
 """
 from __future__ import annotations
 
@@ -22,7 +25,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import sounddevice as sd
+from scipy.signal import resample as scipy_resample
 
 from .asr import SpeechRecognizer
 from .audio_devices import SAMPLE_RATE
@@ -33,6 +38,13 @@ from .vad import StreamingVAD
 from .voice_clone import VoiceSynthesizer
 
 _SENTINEL = object()
+
+
+def _resample(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
+    if from_rate == to_rate or len(audio) == 0:
+        return audio
+    target_length = max(1, round(len(audio) * to_rate / from_rate))
+    return scipy_resample(audio, target_length).astype(np.float32)
 
 
 @dataclass
@@ -147,7 +159,19 @@ class LiveVoicePipeline:
                 print(f"[clonavoz] Error procesando una frase: {exc}")
 
     def _playback_loop(self) -> None:
-        out_stream: sd.OutputStream | None = None
+        if self.output_device is None:
+            device_info = sd.query_devices(kind="output")
+        else:
+            device_info = sd.query_devices(self.output_device)
+        target_rate = int(device_info["default_samplerate"])
+
+        out_stream = sd.OutputStream(
+            samplerate=target_rate,
+            channels=1,
+            dtype="float32",
+            device=self.output_device,
+        )
+        out_stream.start()
         try:
             while True:
                 item = self._audio_out_queue.get()
@@ -156,16 +180,8 @@ class LiveVoicePipeline:
                 audio, sample_rate = item
                 if len(audio) == 0:
                     continue
-                if out_stream is None:
-                    out_stream = sd.OutputStream(
-                        samplerate=sample_rate,
-                        channels=1,
-                        dtype="float32",
-                        device=self.output_device,
-                    )
-                    out_stream.start()
+                audio = _resample(audio, sample_rate, target_rate)
                 out_stream.write(audio.reshape(-1, 1))
         finally:
-            if out_stream is not None:
-                out_stream.stop()
-                out_stream.close()
+            out_stream.stop()
+            out_stream.close()
