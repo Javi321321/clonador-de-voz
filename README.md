@@ -140,6 +140,16 @@ con auriculares. clonavoz además desactiva la telemetría de las librerías que
 activada (por ejemplo onnxruntime, que si no guardaría un identificador en esa PC). Cuidá
 la carpeta `datos` como cualquier dato personal: tiene tu voz grabada.
 
+**Probada con audio de verdad.** Cada cambio se prueba solo en una máquina Windows limpia
+de GitHub (4 núcleos, sin GPU): se arma la versión portable, se instala VB-CABLE y se le
+"habla" en español por un dispositivo de grabación de Windows, como si fuera tu micrófono.
+`test-audio`, `enroll` y `run` tienen que funcionar, y lo que llega a "CABLE Output" (lo
+que escucharía Zoom) tiene que ser la traducción en inglés y entenderse. En esa máquina la
+traducción empezó a sonar entre 2 y 3 segundos después de terminar cada frase. Las
+grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
+máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 3 del
+menú).
+
 ## Instalar FFmpeg (solo para el motor XTTS-v2 en Windows)
 
 El motor liviano (el que se usa sin GPU) no necesita FFmpeg. Con XTTS-v2 sí: desde PyTorch 2.9 (obligatorio si tenés Python 3.13/3.14, ya que no hay builds de
