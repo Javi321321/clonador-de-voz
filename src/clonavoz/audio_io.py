@@ -199,11 +199,18 @@ class MicrophoneStream:
 
 
 class AudioOutput:
-    """Salida mono a la frecuencia nativa del dispositivo; `play` acepta audio
-    a cualquier frecuencia y bloquea hasta que se terminó de encolar."""
+    """Salida mono; `play` acepta audio a cualquier frecuencia y bloquea hasta
+    que se terminó de encolar. Se abre a `preferred_rate` (la del motor de voz,
+    así no hay que remuestrear) si el dispositivo la acepta, y si no a su
+    frecuencia nativa."""
 
-    def __init__(self, device: int | None) -> None:
+    # Antes de empezar a sonar una frase que llega por partes, se junta este
+    # colchón: si una parte se demora un poco, no se corta la voz.
+    STREAM_CUSHION_SECONDS = 0.25
+
+    def __init__(self, device: int | None, preferred_rate: int | None = None) -> None:
         self.device = device
+        self.preferred_rate = preferred_rate
         self._stream = None
         self.samplerate: int | None = None
         self.channels: int | None = None
@@ -220,23 +227,24 @@ class AudioOutput:
             ) from exc
 
         index = info["index"]
-        rate = int(info["default_samplerate"])
+        rates = [r for r in dict.fromkeys([self.preferred_rate, int(info["default_samplerate"])]) if r]
         errors = []
-        for channels in dict.fromkeys([1, min(2, int(info["max_output_channels"]))]):
-            try:
-                stream = sd.OutputStream(device=index, samplerate=rate, channels=channels, dtype="float32")
-            except sd.PortAudioError as exc:
-                errors.append(f"{rate} Hz, {channels} canal(es): {exc}")
-                continue
-            try:
-                stream.start()
-            except sd.PortAudioError as exc:
-                stream.close()
-                errors.append(f"{rate} Hz, {channels} canal(es): {exc}")
-                continue
-            self._stream, self.samplerate, self.channels = stream, rate, channels
-            self.description = describe_device(index)
-            return
+        for rate in rates:
+            for channels in dict.fromkeys([1, min(2, int(info["max_output_channels"]))]):
+                try:
+                    stream = sd.OutputStream(device=index, samplerate=rate, channels=channels, dtype="float32")
+                except sd.PortAudioError as exc:
+                    errors.append(f"{rate} Hz, {channels} canal(es): {exc}")
+                    continue
+                try:
+                    stream.start()
+                except sd.PortAudioError as exc:
+                    stream.close()
+                    errors.append(f"{rate} Hz, {channels} canal(es): {exc}")
+                    continue
+                self._stream, self.samplerate, self.channels = stream, rate, channels
+                self.description = describe_device(index)
+                return
 
         raise AudioDeviceError(
             f"No se pudo abrir la salida {describe_device(index)}:\n  "
@@ -249,8 +257,39 @@ class AudioOutput:
         if self._stream is None or len(audio) == 0:
             return
         audio = resample(np.asarray(audio, dtype=np.float32), sample_rate, self.samplerate)
+        self._write(audio)
+
+    def play_stream(self, chunks, sample_rate: int) -> None:
+        """Reproduce una frase que llega por partes (`chunks`, a `sample_rate`),
+        a medida que llegan: empieza a sonar sin esperar la frase entera."""
+        if self._stream is None:
+            return
+        resampler = StreamResampler(sample_rate, self.samplerate) if sample_rate != self.samplerate else None
+        cushion = int(self.STREAM_CUSHION_SECONDS * self.samplerate)
+        pending: list[np.ndarray] = []
+        buffered = 0
+        for chunk in chunks:
+            chunk = np.asarray(chunk, dtype=np.float32).reshape(-1)
+            if resampler is not None:
+                chunk = resampler.process(chunk)
+            if pending is not None:
+                pending.append(chunk)
+                buffered += len(chunk)
+                if buffered < cushion:
+                    continue
+                chunk, pending = np.concatenate(pending), None
+            self._write(chunk)
+        if pending:
+            self._write(np.concatenate(pending))
+
+    def _write(self, audio: np.ndarray) -> None:
+        if self._stream is None or len(audio) == 0:
+            return
         frames = np.repeat(audio.reshape(-1, 1), self.channels, axis=1)
-        self._stream.write(frames)
+        try:
+            self._stream.write(frames)
+        except sd.PortAudioError as exc:
+            raise AudioDeviceError(f"Se cortó la salida de audio {self.description}: {exc}") from exc
 
     def close(self) -> None:
         stream, self._stream = self._stream, None

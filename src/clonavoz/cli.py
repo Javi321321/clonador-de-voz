@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import getpass
+import os
 import platform
 import queue
 import sys
@@ -45,14 +47,22 @@ def _cmd_devices(_args: argparse.Namespace) -> None:
 
 
 def _cmd_languages(_args: argparse.Namespace) -> None:
-    print(f"{'código':8s} {'idioma':22s} clonación de voz")
+    from . import pocket_voice
+    from .piper_tts import has_voice
+
+    print(f"{'código':8s} {'idioma':22s} tu voz en ese idioma")
     for lang in list_languages():
-        clona = "sí" if lang.xtts_code else "no (voz neutra)"
-        print(f"{lang.code:8s} {lang.name:22s} {clona}")
+        if pocket_voice.supports(lang.code):
+            voice = "natural" + (" (descargada)" if pocket_voice.cloning_ready(lang.code) else "") + " o liviana"
+        elif has_voice(lang.code):
+            voice = "liviana"
+        else:
+            voice = "todavía sin voz (solo se puede traducir DESDE este idioma)"
+        print(f"{lang.code:8s} {lang.name:22s} {voice}")
     print(
-        "\nTambién puedes usar directamente cualquier código NLLB-200 (formato "
-        "FLORES-200, ej. 'ben_Beng') para traducir a otros idiomas que no están "
-        "en esta lista, aunque no tengan clonación de voz."
+        "\nVoz natural: la más parecida a vos y la que suena más natural (necesita descargarla con "
+        "`clonavoz download-models`). Voz liviana: tu timbre sobre una voz base, en más idiomas.\n"
+        "Para traducir tu voz, cualquier idioma de la lista sirve como idioma en el que hablás."
     )
 
 
@@ -94,10 +104,48 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
         except RuntimeError as exc:
             print(exc, file=sys.stderr)
             sys.exit(1)
+    _download_natural_voice(languages, args.hf_token)
     (data_dir() / "modelos_listos.txt").write_text(
         "Modelos descargados para: " + ", ".join(lang.code for lang in languages) + "\n", encoding="utf-8"
     )
     print(f"Listo: ya se puede usar sin internet (datos en {data_dir()}).")
+
+
+_NATURAL_VOICE_HELP = """
+Voz natural (recomendada): clona tu voz directamente y suena mucho más natural que la liviana.
+Sus creadores (Kyutai) piden aceptar una condición antes de bajarla: clonar solo voces con el
+permiso de su dueño (la tuya). Se hace una sola vez:
+  1. Creá una cuenta gratis en https://huggingface.co/join
+  2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones (botón de arriba).
+  3. En https://huggingface.co/settings/tokens creá un token de tipo "Read" y copialo.
+El token se usa solo para esta descarga: no se guarda en ningún lado.
+"""
+
+
+def _download_natural_voice(languages, token: str | None) -> None:
+    """Descarga la voz natural de los idiomas que la tienen. Es opcional: si no
+    se puede, se sigue usando el motor liviano."""
+    from . import pocket_voice
+
+    wanted = [lang for lang in languages if pocket_voice.supports(lang.code) and not pocket_voice.cloning_ready(lang.code)]
+    if not wanted:
+        return
+    token = token or os.environ.get("HF_TOKEN") or None
+    if token is None and sys.stdin.isatty():
+        print(_NATURAL_VOICE_HELP)
+        token = getpass.getpass("Pegá tu token (no se ve al pegarlo, es normal) y Enter, o solo Enter para saltear: ")
+        token = token.strip() or None
+        if token is None:
+            print("Salteado: se va a usar la voz liviana. Podés bajar la natural cuando quieras.")
+            return
+    for lang in wanted:
+        print(f"Voz natural (Pocket TTS) para {lang.name}...")
+        try:
+            pocket_voice.download(lang.code, token)
+        except RuntimeError as exc:
+            print(exc)
+            print("Mientras tanto se usa la voz liviana (Piper + OpenVoice).")
+            return
 
 
 def _resolve_output_device(requested: int | None, to_speakers: bool = False) -> audio_devices.AudioDevice:
@@ -154,7 +202,7 @@ def _check_voice_sample(path: Path) -> None:
 def _cmd_run(args: argparse.Namespace) -> None:
     try:
         get_language(args.source_lang)
-        get_language(args.target_lang)
+        target = get_language(args.target_lang)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
@@ -162,18 +210,18 @@ def _cmd_run(args: argparse.Namespace) -> None:
     # Importes pesados (torch, Whisper, NLLB, voz) solo para este comando.
     from .config import get_profile
     from .pipeline import LiveVoicePipeline
-    from .voice_clone import xtts_installed
+    from .voice_clone import ENGINE_NAMES, choose_engine
 
     profile = get_profile(args.profile)
-    engine = profile.voice_engine if args.voice_engine == "auto" else args.voice_engine
-    if engine == "xtts" and not xtts_installed():
-        if args.voice_engine == "xtts":
-            print('El motor XTTS no está instalado. Instálalo con: pip install "coqui-tts[codec]"', file=sys.stderr)
-            sys.exit(1)
-        engine = "openvoice"
+    try:
+        engine, note = choose_engine(args.voice_engine, profile.voice_engine, target)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    if note:
+        print(note)
     profile = dataclasses.replace(profile, voice_engine=engine)
-    engine_name = "liviano (Piper + OpenVoice)" if engine == "openvoice" else "XTTS-v2"
-    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device}, voz: {engine_name})")
+    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device}, voz: {ENGINE_NAMES[engine]})")
 
     reference_wav = Path(args.voice_sample) if args.voice_sample else DEFAULT_VOICE_SAMPLE
     _check_voice_sample(reference_wav)
@@ -401,6 +449,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Idiomas que vas a hacer escuchar (sus voces base), ej: en pt fr. Por defecto: es en",
     )
     p_download.add_argument(
+        "--hf-token",
+        help="Token de Hugging Face para bajar la voz natural (ver `clonavoz download-models` sin esto: "
+        "explica cómo conseguirlo). También se puede pasar en la variable HF_TOKEN. No se guarda.",
+    )
+    p_download.add_argument(
         "--whisper", nargs="+", default=["tiny", "small"],
         help="Modelos de reconocimiento de voz: tiny (perfil low) y small (perfil medium)",
     )
@@ -427,9 +480,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--voice-engine",
         default="auto",
-        choices=["auto", "openvoice", "xtts"],
-        help="Cómo se genera tu voz: 'openvoice' (liviano y rápido, por defecto sin GPU) o "
-        "'xtts' (XTTS-v2, más pesado; por defecto con GPU NVIDIA).",
+        choices=["auto", "natural", "openvoice", "xtts"],
+        help="Cómo se genera tu voz: 'natural' (Pocket TTS: la más parecida a vos y natural; se usa sola "
+        "si está descargada), 'openvoice' (liviano, en ~37 idiomas) o 'xtts' (XTTS-v2, pesado, para GPU).",
     )
     p_run.set_defaults(func=_cmd_run)
 

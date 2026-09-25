@@ -2,8 +2,8 @@
 en un Windows limpio con el Python portable, después de `download-models`.
 
 Usa como "tu voz" una frase en español dicha por Piper, la reconoce, la
-traduce al inglés y la dice con esa voz clonada (motor liviano). Falla si
-algún paso no produce resultado.
+traduce al inglés y la dice con esa voz clonada (motor liviano y voz
+natural). Falla si algún paso no produce resultado.
 """
 from __future__ import annotations
 
@@ -74,7 +74,40 @@ def main() -> None:
     assert seconds > 1.0 and np.abs(out).max() > 0.01, "la voz clonada salió vacía"
     sf.write(str(data_dir() / "prueba_en.wav"), out, out_rate)
     _step(f"voz clonada en inglés ({seconds:.1f}s de audio)", t)
+
+    _natural_voice(sample, english)
     print("TODO OK")
+
+
+def _natural_voice(sample, english: str) -> None:
+    """Voz natural (Pocket TTS). Con los pesos que clonan voces (bajados con el
+    token de Hugging Face, si el CI lo tiene) se prueba con la voz de prueba; si
+    no, al menos que Pocket TTS funcione en Windows, con una voz prediseñada."""
+    from clonavoz import pocket_voice
+
+    t = time.perf_counter()
+    if pocket_voice.cloning_ready("en"):
+        voice = pocket_voice.PocketVoice(sample)
+        voice.preload("en")
+        _step("voz natural: modelo y tu voz cargados", t)
+        t = time.perf_counter()
+        out, rate = voice.synthesize(english, "en")
+        what = "voz natural clonada"
+    else:
+        print("  --  voz natural: sin el modelo que clona voces (falta el token); se prueba Pocket TTS "
+              "con una voz prediseñada", flush=True)
+        tts_model, _ = pocket_voice._import_pocket()
+        model = tts_model.load_model(language="english")
+        state = model.get_state_for_audio_prompt("alba")
+        _step("Pocket TTS cargado", t)
+        t = time.perf_counter()
+        out, rate = model.generate_audio(state, english).squeeze(0).numpy(), model.sample_rate
+        what = "Pocket TTS"
+    elapsed, seconds = time.perf_counter() - t, len(out) / rate
+    assert seconds > 1.0 and np.abs(out).max() > 0.01, f"{what}: salió vacía"
+    sf.write(str(data_dir() / "prueba_natural_en.wav"), out, rate)
+    _step(f"{what} en inglés ({seconds:.1f}s de audio, {elapsed / seconds:.2f}x del tiempo real, "
+          f"{torch.get_num_threads()} hilos)", t)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,11 @@
-"""Síntesis de voz con tu timbre. Dos motores:
+"""Síntesis de voz con tu timbre. Tres motores:
 
-- "openvoice" (por defecto sin GPU): Piper dice la frase en el idioma destino
+- "natural" (por defecto cuando está descargado): Pocket TTS genera la frase
+  ya con tu voz, clonada de tu muestra; es el que más se parece a vos y el más
+  natural, y es rápido en CPU. Habla inglés, español, francés, alemán,
+  portugués, italiano y neerlandés; en los demás idiomas se usa "openvoice".
+  Ver `pocket_voice.py`.
+- "openvoice" (liviano, sin descargas extra): Piper dice la frase en el idioma destino
   y el conversor de OpenVoice V2 le pone tu timbre. Unas 10 veces más rápido
   que XTTS-v2 en CPU, usa poca memoria y clona tu voz en todos los idiomas
   que tienen voz de Piper (~37). Con una voz base de tono parecido al tuyo,
@@ -12,17 +17,23 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 
-from . import openvoice
+from . import openvoice, pocket_voice
 from .config import PerformanceProfile
 from .languages import Language
 from .piper_tts import PiperSynthesizer, median_pitch
 
-ENGINES = ("openvoice", "xtts")
+ENGINES = ("natural", "openvoice", "xtts")
+ENGINE_NAMES = {
+    "natural": "natural (Pocket TTS: tu voz clonada)",
+    "openvoice": "liviano (Piper + OpenVoice)",
+    "xtts": "XTTS-v2",
+}
 
 
 def xtts_installed() -> bool:
@@ -31,6 +42,33 @@ def xtts_installed() -> bool:
     except ImportError:
         return False
     return True
+
+
+def choose_engine(requested: str, default: str, language: Language) -> tuple[str, str | None]:
+    """El motor de voz a usar para hablar en `language` y, si corresponde, un
+    aviso para el usuario. `requested` es lo que pidió ("auto" = elegir solo) y
+    `default`, el del perfil de rendimiento. Lanza RuntimeError si pidió un
+    motor que no está instalado o descargado."""
+    if requested == "auto":
+        if pocket_voice.cloning_ready(language.code):
+            return "natural", None
+        if default == "xtts" and not xtts_installed():
+            return "openvoice", None
+        return default, None
+    if requested == "natural":
+        if not pocket_voice.supports(language.code):
+            return "openvoice", (
+                f"La voz natural todavía no habla {language.name}: se usa el motor liviano (Piper + OpenVoice)."
+            )
+        if not pocket_voice.cloning_ready(language.code):
+            raise RuntimeError(
+                f"La voz natural para {language.name} no está descargada. Descargala con "
+                f"`clonavoz download-models --languages ... {language.code}` y tu token de Hugging Face "
+                "(opción 6 del menú en la versión portable), o usá --voice-engine openvoice."
+            )
+    if requested == "xtts" and not xtts_installed():
+        raise RuntimeError('El motor XTTS no está instalado. Instálalo con: pip install "coqui-tts[codec]"')
+    return requested, None
 
 
 class VoiceSynthesizer:
@@ -48,6 +86,8 @@ class VoiceSynthesizer:
         self._xtts = None
         self._piper: PiperSynthesizer | None = None
         self._converter: openvoice.ToneColorConverter | None = None
+        self._pocket: pocket_voice.PocketVoice | None = None
+        self._pocket_ready: dict[str, bool] = {}
         self._target_embedding = None
         self._source_embeddings: dict[str, object] = {}  # por voz de Piper
         self._warned_languages: set[str] = set()
@@ -77,6 +117,33 @@ class VoiceSynthesizer:
             self._piper = PiperSynthesizer(speaker_pitch_hz=median_pitch(*self._reference_audio()))
         return self._piper
 
+    def _uses_pocket(self, language: Language) -> bool:
+        if self.engine != "natural":
+            return False
+        if language.code not in self._pocket_ready:
+            ready = pocket_voice.cloning_ready(language.code)
+            self._pocket_ready[language.code] = ready
+            if not ready:
+                print(
+                    f"[clonavoz] La voz natural no está disponible en '{language.name}': se usa el motor "
+                    "liviano (Piper + OpenVoice) para ese idioma."
+                )
+        return self._pocket_ready[language.code]
+
+    def _get_pocket(self) -> pocket_voice.PocketVoice:
+        if self._pocket is None:
+            self._pocket = pocket_voice.PocketVoice(Path(self.reference_wav))
+        return self._pocket
+
+    def can_stream(self, language: Language) -> bool:
+        """Si la frase se puede ir reproduciendo mientras se genera."""
+        return self._uses_pocket(language)
+
+    def stream(self, text: str, language: Language) -> tuple[Iterator[np.ndarray], int]:
+        """(pedazos de audio a medida que se generan, frecuencia). Solo si `can_stream`."""
+        pocket = self._get_pocket()
+        return pocket.stream(text, language.code), pocket.sample_rate
+
     def _get_converter(self) -> openvoice.ToneColorConverter:
         if self._converter is None:
             self._converter = openvoice.ToneColorConverter.from_pretrained()
@@ -95,7 +162,9 @@ class VoiceSynthesizer:
         """Carga ya todo lo que va a usar `language` (y descarga lo que falte).
         Si se cargara recién con la primera frase, esa frase tardaría mucho
         más en salir sin que se note por qué, y los errores aparecerían tarde."""
-        if self.engine == "openvoice":
+        if self._uses_pocket(language):
+            self._get_pocket().preload(language.code)
+        elif self.engine in ("natural", "openvoice"):
             self._get_converter()
             self._source_embedding(language)
         elif language.xtts_code is not None:
@@ -107,7 +176,10 @@ class VoiceSynthesizer:
         if not text.strip():
             return np.array([], dtype=np.float32), 24000
 
-        if self.engine == "openvoice":
+        if self._uses_pocket(language):
+            return self._get_pocket().synthesize(text, language.code)
+
+        if self.engine in ("natural", "openvoice"):
             audio, sample_rate = self._get_piper().synthesize(text, language.code)
             converted = self._get_converter().convert(
                 audio, sample_rate, self._source_embedding(language), self._target_embedding

@@ -83,7 +83,11 @@ class LiveVoicePipeline:
         self._text_queue: "queue.Queue" = queue.Queue()
         self._audio_out_queue: "queue.Queue" = queue.Queue()
         self.mic = MicrophoneStream(input_device, on_frame=self._frame_queue.put, frame_size=self._vad.frame_size())
-        self.output = AudioOutput(output_device)
+        # La voz natural sale a 24 kHz: si el dispositivo lo acepta, se abre así.
+        streaming = self._synth.can_stream(self.target_language)
+        self.output = AudioOutput(output_device, preferred_rate=24000 if streaming else None)
+        # Se decide en `_warm_up` según lo rápido que genera la voz esta PC.
+        self.stream_playback = False
         self._processing = False
         self._playing = False
         self._last_error = ""
@@ -97,7 +101,15 @@ class LiveVoicePipeline:
         ejemplo, falta FFmpeg para XTTS), el error se ve ya al arrancar."""
         try:
             self._asr.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), self.source_language.whisper_code)
-            self._synth.synthesize(self._translator.translate("Hola."), self.target_language)
+            text = self._translator.translate("Hola, ¿cómo estás?")
+            self._synth.synthesize(text, self.target_language)
+            if self._synth.can_stream(self.target_language):
+                # Ir reproduciendo mientras se genera solo si esta PC genera la voz
+                # bastante más rápido de lo que dura: si no, la voz se cortaría.
+                started = time.perf_counter()
+                audio, sample_rate = self._synth.synthesize(text, self.target_language)
+                speed = (time.perf_counter() - started) / max(0.1, len(audio) / sample_rate)
+                self.stream_playback = speed < 0.6
         except Exception as exc:  # noqa: BLE001 - se informa igual que el error de una frase
             self._report_phrase_error(exc)
 
@@ -166,14 +178,27 @@ class LiveVoicePipeline:
                     self.on_transcript(text_src, text_tgt)
                 self.stats.last_transcript = (text_src, text_tgt)
 
-                audio_out, sample_rate = self._synth.synthesize(text_tgt, self.target_language)
                 self.stats.utterances_processed += 1
+                if self.stream_playback:
+                    # La voz se genera en el hilo de reproducción, a medida que suena.
+                    self._audio_out_queue.put(("stream", text_tgt))
+                    continue
+                audio_out, sample_rate = self._synth.synthesize(text_tgt, self.target_language)
                 self.stats.last_latency_seconds = time.time() - start_time
-                self._audio_out_queue.put((audio_out, sample_rate))
+                self._audio_out_queue.put(("audio", audio_out, sample_rate))
             except Exception as exc:  # noqa: BLE001 - una frase con error no debe tumbar el pipeline
                 self._report_phrase_error(exc)
             finally:
                 self._processing = False
+
+    def _play_streamed(self, text: str) -> None:
+        try:
+            chunks, sample_rate = self._synth.stream(text, self.target_language)
+            self.output.play_stream(chunks, sample_rate)
+        except AudioDeviceError:
+            raise  # el dispositivo de salida falló: eso sí detiene todo
+        except Exception as exc:  # noqa: BLE001 - una frase con error no debe tumbar el pipeline
+            self._report_phrase_error(exc)
 
     def _report_phrase_error(self, exc: Exception) -> None:
         text = str(exc)
@@ -196,10 +221,12 @@ class LiveVoicePipeline:
                 item = self._audio_out_queue.get()
                 if item is _SENTINEL:
                     return
-                audio, sample_rate = item
                 self._playing = True
                 try:
-                    self.output.play(audio, sample_rate)
+                    if item[0] == "stream":
+                        self._play_streamed(item[1])
+                    else:
+                        self.output.play(item[1], item[2])
                 finally:
                     self._playing = False
         except Exception as exc:  # noqa: BLE001 - se reporta en la consola vía self.error

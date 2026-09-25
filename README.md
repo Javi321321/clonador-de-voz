@@ -20,7 +20,11 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
    la traducción terminó de sonar **unos 4 segundos** después de que terminaste de
    hablar, tanto con 4 núcleos como con 2 (una computadora modesta). En frases largas,
    la primera parte ya empieza a sonar mientras seguís hablando.
-2. **Tu voz clonada funciona en ~37 idiomas**, todos los que tienen una voz de Piper
+2. **Tu voz clonada suena más natural en 7 idiomas y funciona en ~37.** La *voz natural*
+   (inglés, español, francés, alemán, portugués, italiano y neerlandés) genera cada frase
+   directamente con tu voz y es la que más se parece a vos; hay que descargarla una vez
+   con una cuenta gratis (ver [Voz natural](#voz-natural-recomendada)). La *voz liviana*
+   funciona en todos los idiomas que tienen una voz de Piper
    (español, inglés, portugués, francés, alemán, italiano, neerlandés, polaco, ruso,
    turco, árabe, chino, japonés, coreano, húngaro, checo, hindi, ucraniano, sueco,
    noruego, danés, finés, griego, rumano, búlgaro, eslovaco, serbio, catalán, euskera,
@@ -33,22 +37,25 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
 
 ```
 tu micrófono → VAD (detecta pausas) → Whisper (ASR) → NLLB-200 (traducción)
-   → Piper (voz rápida) + OpenVoice (le pone tu timbre)   ← sin GPU (por defecto)
-     o XTTS-v2 clonando tu voz                            ← con GPU NVIDIA
+   → Pocket TTS generando la frase con tu voz            ← voz natural (si está descargada)
+     o Piper (voz rápida) + OpenVoice (le pone tu timbre) ← voz liviana
+     o XTTS-v2 clonando tu voz                            ← opcional, con GPU NVIDIA
    → micrófono virtual → tu app de videollamada
 ```
 
-Hay dos motores para generar tu voz (se elige solo, o con `--voice-engine`):
+Hay tres motores para generar tu voz (se elige solo, o con `--voice-engine`):
 
-| Motor | Cuándo se usa | Voz de una frase de ~3 s | Memoria | Idiomas con tu voz |
-|---|---|---|---|---|
-| `openvoice` (Piper + OpenVoice) | sin GPU NVIDIA | ~0.6 s (4 núcleos), ~0.9 s (2 núcleos) | ~2 GB en total | ~37 |
-| `xtts` (XTTS-v2) | con GPU NVIDIA | ~4.5 s (4 núcleos), ~9 s (2 núcleos) sin GPU | ~6 GB en total | 17 |
+| Motor | Cuándo se usa | Parecido a vos | Naturalidad | Tiempo por frase (2 núcleos) | Idiomas |
+|---|---|---|---|---|---|
+| `natural` (Pocket TTS) | si está descargado ([ver](#voz-natural-recomendada)) | **0.93** | **3.9** | **0.9 s**, y empieza a sonar a los 0.1 s | 7 |
+| `openvoice` (Piper + OpenVoice) | si no, o en otros idiomas | 0.84 | 3.7 | 1.1 s | ~37 |
+| `xtts` (XTTS-v2) | solo si lo instalás, con GPU NVIDIA | — | — | ~9 s sin GPU | 17 |
 
-En nuestras pruebas con la voz de una persona real, los dos se parecen igual a la voz
-original (0.92-0.93 en una escala donde la misma persona en otra grabación da 0.98 y
-otra persona ~0.66). XTTS-v2 tiene una entonación algo más natural; con GPU es rápido,
-sin GPU es varias veces más lento.
+Medido con 5 personas reales (hombres y mujeres) que hablan español, diciendo 5 frases
+en inglés con su voz clonada de una muestra de 14 s. *Parecido*: 1 es idéntico; otra
+grabación de la misma persona da 0.98. *Naturalidad*: puntaje automático de 1 a 5 que
+imita el de personas escuchando (UTMOS). Con la voz natural mejoró el parecido de las 5
+personas, sin excepción.
 
 El "micrófono virtual" es la pieza clave de portabilidad: en vez de integrarse con cada
 app de videollamada por separado, clonavoz escribe el audio traducido en un dispositivo
@@ -123,12 +130,13 @@ necesita tarjeta gráfica.
 
 **Usarla:** extraé el zip donde quieras (por ejemplo, en el pendrive) y hacé doble clic
 en `Iniciar.bat`. Aparece un menú:
-1. La primera vez: opción **6** para descargar los modelos (~1.6 GB, necesita internet una
-   sola vez) y opción **2** para grabar tu voz.
+1. La primera vez: opción **6** para descargar los modelos (~2 GB, necesita internet una
+   sola vez; ahí te pide el token para la [voz natural](#voz-natural-recomendada), o Enter
+   para saltearla) y opción **2** para grabar tu voz.
 2. Opción **1** para usarlo en una videollamada (elegí "CABLE Output" como micrófono en la
    app), u opción **4** para escuchar la traducción vos mismo en auriculares.
 
-Necesita ~3 GB libres en el pendrive o disco (programa ~1 GB + modelos ~1.6 GB) y al menos
+Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2 GB) y al menos
 4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca bastante
 más rápido que desde uno USB 2.0.
 
@@ -149,6 +157,33 @@ traducción empezó a sonar entre 2 y 3 segundos después de terminar cada frase
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
 máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 3 del
 menú).
+
+## Voz natural (recomendada)
+
+La voz natural usa [Pocket TTS](https://github.com/kyutai-labs/pocket-tts), un modelo
+abierto de Kyutai (2026) que genera cada frase directamente con tu voz, clonada de tu
+muestra: la que más se parece a vos y la que suena más natural (ver la tabla de arriba).
+Es chico (100 millones de parámetros), corre en el procesador con 2 núcleos, más rápido
+que tiempo real, y entrega el audio a medida que lo genera, así que la traducción empieza
+a sonar antes. Habla inglés, español, francés, alemán, portugués, italiano y neerlandés.
+
+Sus creadores piden aceptar una condición antes de descargar la parte que clona voces:
+**clonar solo voces con el permiso de su dueño** (la tuya, en este caso). Se hace una sola
+vez, gratis:
+
+1. Creá una cuenta en https://huggingface.co/join
+2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones.
+3. En https://huggingface.co/settings/tokens creá un token de tipo *Read*.
+4. Descargá los modelos pegando ese token cuando te lo pida: opción **6** del menú de la
+   versión portable, o `clonavoz download-models --languages es en --hf-token TU_TOKEN`.
+
+El token se usa solo para esa descarga y no se guarda. Después funciona sin internet y
+se usa sola en los idiomas que tenga; en los demás sigue la voz liviana. Consejo: tu voz
+se copia de tu muestra (`clonavoz enroll`), así que grabala en un lugar silencioso,
+hablando como hablás normalmente.
+
+Usala con respeto: es tu voz diciendo lo que vos dijiste, en otro idioma. Si en una
+conversación importa (trámites, acuerdos), avisá que estás usando un traductor.
 
 ## Instalar FFmpeg (solo para el motor XTTS-v2 en Windows)
 
@@ -278,9 +313,9 @@ de salida de la llamada como entrada y reproduciendo hacia tus audífonos.
 
 | Perfil | Cuándo se usa | Whisper | Motor de voz |
 |---|---|---|---|
-| `low` | Laptop sin GPU, poca RAM | `tiny` | `openvoice` (liviano) |
-| `medium` | Laptop de gama media / Apple Silicon | `small` | `openvoice` (liviano) |
-| `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | `medium` | `xtts` (XTTS-v2) |
+| `low` | Laptop sin GPU, poca RAM | `tiny` | `natural` si está descargada, si no `openvoice` |
+| `medium` | Laptop de gama media / Apple Silicon | `small` | `natural` si está descargada, si no `openvoice` |
+| `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | `medium` | `natural` si está descargada, si no `xtts` |
 
 `auto` (por defecto) elige el perfil según la RAM, núcleos de CPU y GPU detectados. Con
 el perfil `low`, en nuestras pruebas sin GPU (con 4 y con 2 núcleos) la traducción de una
@@ -299,6 +334,9 @@ poco más de demora.
   hindi, serbio y tailandés son de uso no comercial, y las de árabe, chino, hebreo,
   indonesio, suajili y las voces agudas de ruso y sueco no declaran una licencia clara
   (ver el `MODEL_CARD` de cada voz en https://huggingface.co/rhasspy/piper-voices).
+- Pocket TTS (voz natural): código MIT; modelo CC-BY-4.0, © Kyutai
+  (https://kyutai.org), con la condición de no clonar voces sin el consentimiento de su
+  dueño ni usarlas para engañar.
 - XTTS-v2 (motor opcional): Coqui Public Model License (uso no comercial sin licencia
   adicional).
 
@@ -308,8 +346,9 @@ NLLB-200 (y las voces de Piper mencionadas); con XTTS-v2, también ese modelo.
 ## Limitaciones conocidas / roadmap
 
 - No hay interfaz gráfica todavía (solo línea de comandos).
-- La voz clonada copia tu timbre, pero la entonación de cada frase la pone el modelo
-  (Piper o XTTS-v2): no copia la emoción exacta con la que la dijiste.
+- La voz clonada copia tu voz, pero la entonación de cada frase la pone el modelo: la
+  voz natural la toma de cómo hablás en tu muestra, pero no copia la emoción exacta con
+  la que dijiste cada frase.
 - El motor liviano elige, para cada idioma, una voz base grave o aguda según el tono de
   tu muestra de voz. En algunos idiomas hay una sola voz disponible (por ejemplo, alemán
   e italiano), y ahí el parecido puede ser algo menor si tu tono es muy distinto.

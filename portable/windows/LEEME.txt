@@ -8,11 +8,24 @@ Cómo usarlo
 -----------
 1. Doble clic en "Iniciar.bat".
 2. La primera vez:
-   - Opción 6: descarga los modelos (~1.6 GB, necesita internet una sola vez;
-     quedan guardados en esta carpeta).
+   - Opción 6: descarga los modelos (~2 GB, necesita internet una sola vez;
+     quedan guardados en esta carpeta). Te pide un token para la "voz natural"
+     (ver abajo); con Enter la salteás y se usa la voz liviana.
    - Opción 2: graba 15 segundos de tu voz.
 3. Opción 1 para usarlo en una videollamada (en Zoom/Meet/Teams/Discord elegí
    "CABLE Output" como micrófono), u opción 4 para escucharlo en auriculares.
+
+Voz natural (recomendada)
+-------------------------
+Es la que más se parece a vos y la que suena más natural (inglés, español,
+francés, alemán, portugués, italiano y neerlandés). Sus creadores (Kyutai)
+piden aceptar una condición: clonar solo voces con permiso de su dueño (la
+tuya). Una sola vez, gratis:
+  1. Creá una cuenta en https://huggingface.co/join
+  2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones.
+  3. En https://huggingface.co/settings/tokens creá un token de tipo "Read".
+  4. Opción 6 del menú y pegá el token cuando lo pida (no se ve al pegarlo).
+El token no se guarda. Después funciona sin internet.
 
 Tu voz y tus datos
 ------------------

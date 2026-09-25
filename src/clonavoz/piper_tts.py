@@ -148,6 +148,11 @@ def _user_overrides() -> dict:
     return {}
 
 
+def has_voice(language_code: str) -> bool:
+    """Si hay una voz de Piper para ese idioma (incluidas las que agregaste vos)."""
+    return language_code in _VOICES or language_code in _user_overrides()
+
+
 def resolve_voice_id(language_code: str, speaker_pitch_hz: float | None = None) -> str:
     overrides = _user_overrides()
     if language_code in overrides:

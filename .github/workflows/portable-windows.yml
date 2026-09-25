@@ -57,6 +57,10 @@ jobs:
           set "PYTHONUTF8=1"
           dist\clonavoz-portable\python\python.exe -m clonavoz download-models --languages es en || exit /b 1
           dist\clonavoz-portable\python\python.exe portable\smoke_test.py || exit /b 1
+        env:
+          # Opcional: con un token de Hugging Face que aceptó las condiciones de
+          # kyutai/pocket-tts, se prueba también la voz natural clonando la voz.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
       - name: Ver qué dejó la app en la carpeta del usuario de Windows (debería ser nada)
         shell: pwsh
@@ -101,6 +105,8 @@ jobs:
       - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
         shell: cmd
         run: call dist\clonavoz-portable\clonavoz.bat download-models --languages es en || exit /b 1
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
       - name: Dispositivos que ve clonavoz
         shell: cmd

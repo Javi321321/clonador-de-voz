@@ -3,9 +3,9 @@
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install -r requirements.txt
 #
-# Esto instala el motor de voz liviano (Piper + OpenVoice), que es el que se
-# usa por defecto en computadoras sin GPU NVIDIA. El motor XTTS-v2 (por
-# defecto con GPU) es opcional: requirements-xtts.txt.
+# Esto instala los motores de voz natural (Pocket TTS; sus pesos se bajan con
+# `clonavoz download-models`, ver README) y liviano (Piper + OpenVoice). El
+# motor XTTS-v2 es opcional: requirements-xtts.txt.
 
 sounddevice>=0.4.6
 soundfile>=0.12.1
@@ -19,3 +19,4 @@ transformers>=4.40.0,<5.0.0
 sentencepiece>=0.2.0
 piper-tts>=1.3.0
 silero-vad>=6.0
+pocket-tts>=3.3.0
