@@ -232,10 +232,16 @@ En algunas PCs Windows muestra "CABLE Input" con un nombre genérico, como
 "Altavoces (VB-Audio Virtual Cable)" o "Speakers (VB-Audio Virtual Cable)": es el mismo
 dispositivo y clonavoz lo detecta igual.
 
-Ojo: al instalar VB-CABLE, Windows a veces deja "CABLE Output" como micrófono
-predeterminado y "CABLE Input" como altavoz predeterminado. Volvé a poner tu micrófono y
-tus parlantes/auriculares reales como predeterminados en *Configuración > Sistema >
-Sonido*. (clonavoz igual detecta ese caso y usa tu micrófono real, avisándote en pantalla.)
+**Apps o páginas que no te dejan elegir el micrófono** (usan el predeterminado de Windows):
+poné "CABLE Output" como micrófono predeterminado en *Panel de control > Sonido > Grabar*
+(opción 9 del menú en la versión portable). clonavoz lo detecta y sigue escuchando tu
+micrófono real; si no lo encuentra, te avisa y te dice cómo elegirlo.
+
+Ojo: al instalar VB-CABLE, Windows a veces deja "CABLE Input" como altavoz
+predeterminado (y dejás de escuchar tu PC) y "CABLE Output" como micrófono
+predeterminado. Volvé a poner tus parlantes/auriculares reales como predeterminados en
+*Configuración > Sistema > Sonido*. El micrófono puede quedar así: clonavoz detecta ese
+caso y usa tu micrófono real, avisándote en pantalla.
 
 ### macOS
 Instala [BlackHole](https://existential.audio/blackhole/) (gratis, `brew install blackhole-2ch`).

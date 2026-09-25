@@ -23,6 +23,7 @@ echo    5. Cambiar idiomas
 echo    6. Descargar modelos para usar sin internet
 echo    7. Instalar el microfono virtual VB-CABLE en esta PC
 echo    8. Ver dispositivos de audio
+echo    9. Apps que no dejan elegir microfono: poner CABLE Output como predeterminado
 echo    0. Salir
 echo.
 set "OPCION="
@@ -35,6 +36,7 @@ if "%OPCION%"=="5" goto idiomas
 if "%OPCION%"=="6" goto descargar
 if "%OPCION%"=="7" goto vbcable
 if "%OPCION%"=="8" goto dispositivos
+if "%OPCION%"=="9" goto predeterminado
 if "%OPCION%"=="0" exit /b 0
 goto menu
 
@@ -105,5 +107,17 @@ goto menu
 
 :dispositivos
 call clonavoz.bat devices
+pause
+goto menu
+
+:predeterminado
+echo.
+echo Algunas apps y paginas web no te dejan elegir el microfono: usan el
+echo predeterminado de Windows. Para que escuchen tu voz traducida:
+echo   1. En la ventana que se abre (pestana Grabar), clic en "CABLE Output".
+echo   2. Boton "Predeterminar" y Aceptar.
+echo clonavoz igual sigue escuchando tu microfono real (lo busca solo).
+echo Para volver atras, predetermina tu microfono de siempre.
+start "" control mmsys.cpl,,1
 pause
 goto menu
