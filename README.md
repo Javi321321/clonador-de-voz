@@ -36,7 +36,7 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
 ## Cómo funciona
 
 ```
-tu micrófono → VAD (detecta pausas) → Whisper (ASR) → NLLB-200 (traducción)
+tu micrófono → VAD (detecta pausas) → Parakeet o Whisper (ASR) → NLLB-200 (traducción)
    → Pocket TTS generando la frase con tu voz            ← voz natural (si está descargada)
      o Piper (voz rápida) + OpenVoice (le pone tu timbre) ← voz liviana
      o XTTS-v2 clonando tu voz                            ← opcional, con GPU NVIDIA
@@ -130,13 +130,13 @@ necesita tarjeta gráfica.
 
 **Usarla:** extraé el zip donde quieras (por ejemplo, en el pendrive) y hacé doble clic
 en `Iniciar.bat`. Aparece un menú:
-1. La primera vez: opción **6** para descargar los modelos (~2 GB, necesita internet una
+1. La primera vez: opción **6** para descargar los modelos (~2.2 GB, necesita internet una
    sola vez; ahí te pide el token para la [voz natural](#voz-natural-recomendada), o Enter
    para saltearla) y opción **2** para grabar tu voz.
 2. Opción **1** para usarlo en una videollamada (elegí "CABLE Output" como micrófono en la
    app), u opción **4** para escuchar la traducción vos mismo en auriculares.
 
-Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2 GB) y al menos
+Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2.2 GB) y al menos
 4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca bastante
 más rápido que desde uno USB 2.0.
 
@@ -157,6 +157,13 @@ traducción empezó a sonar entre 2 y 3 segundos después de terminar cada frase
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
 máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 3 del
 menú).
+
+Para entender lo que decís se usa **Parakeet** (NVIDIA) si hablás uno de sus 25 idiomas
+europeos (español, inglés, portugués, francés, alemán, italiano, ruso, ucraniano, polaco,
+entre otros) y la PC tiene al menos 6 GB de RAM; si no, Whisper. En 10 minutos de
+grabaciones reales en español, Parakeet se equivocó en el 3.5% de las palabras, contra
+19.4% de Whisper `tiny` (el que se usaba en PCs modestas) y 5% de Whisper `small`, y
+tarda lo mismo que `tiny` (~0.4 s por frase con 2 núcleos). Usa ~900 MB de memoria.
 
 ## Voz natural (recomendada)
 
@@ -311,11 +318,13 @@ de salida de la llamada como entrada y reproduciendo hacia tus audífonos.
 
 ## Perfiles de rendimiento
 
-| Perfil | Cuándo se usa | Whisper | Motor de voz |
+| Perfil | Cuándo se usa | Reconocimiento de voz | Motor de voz |
 |---|---|---|---|
-| `low` | Laptop sin GPU, poca RAM | `tiny` | `natural` si está descargada, si no `openvoice` |
-| `medium` | Laptop de gama media / Apple Silicon | `small` | `natural` si está descargada, si no `openvoice` |
-| `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | `medium` | `natural` si está descargada, si no `xtts` |
+| `low` | Laptop sin GPU, poca RAM | Parakeet (con ≥6 GB de RAM), si no Whisper `tiny` | `natural` si está descargada, si no `openvoice` |
+| `medium` | Laptop de gama media / Apple Silicon | Parakeet, si no Whisper `small` | `natural` si está descargada, si no `openvoice` |
+| `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | Parakeet, si no Whisper `medium` | `natural` si está descargada, si no `xtts` |
+
+(Parakeet, en los idiomas que entiende; en los demás, Whisper.)
 
 `auto` (por defecto) elige el perfil según la RAM, núcleos de CPU y GPU detectados. Con
 el perfil `low`, en nuestras pruebas sin GPU (con 4 y con 2 núcleos) la traducción de una
@@ -325,6 +334,8 @@ poco más de demora.
 
 ## Licencias de los modelos usados
 
+- Parakeet TDT 0.6B v3 (NVIDIA): CC-BY-4.0; se usa la versión ONNX de
+  `istupakov/parakeet-tdt-0.6b-v3-onnx` con `onnx-asr` (MIT).
 - Whisper (faster-whisper): MIT.
 - NLLB-200: CC-BY-NC 4.0 (uso no comercial). Se usa una conversión a CTranslate2 del
   mismo modelo, con la misma licencia.

@@ -375,7 +375,7 @@ def main() -> None:
         sys.exit("El audio no pasa por el cable: no se puede seguir.")
 
     voice, voice_rate = PiperSynthesizer(speaker_pitch_hz=110).synthesize(ENROLL_TEXT, "es")
-    recognizer = SpeechRecognizer(get_profile("medium"))  # Whisper "small", para verificar
+    recognizer = SpeechRecognizer(get_profile("medium"), "es")  # Parakeet (o Whisper), para verificar
     steps = [
         lambda: step_default_microphone(cable_out),
         lambda: step_microphone_with_voice(cable_in, cable_out, voice, voice_rate),

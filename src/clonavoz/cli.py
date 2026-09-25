@@ -86,11 +86,20 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
             print(exc, file=sys.stderr)
             sys.exit(1)
 
-    from . import openvoice, piper_tts, translate  # translate carga torch antes que ctranslate2
+    from . import openvoice, parakeet_asr, piper_tts, translate  # translate carga torch antes que ctranslate2
 
     from faster_whisper.utils import download_model
 
-    for size in args.whisper:
+    parakeet = any(parakeet_asr.supports(lang.code) for lang in languages)
+    if parakeet:
+        print("Reconocimiento de voz preciso (Parakeet, ~640 MB)...")
+        parakeet_asr.download()
+    # Whisper "tiny" siempre (para PCs con poca memoria); "small" solo si hay un
+    # idioma que Parakeet no entiende (para PCs potentes).
+    whisper_sizes = args.whisper or ["tiny"] + (
+        [] if all(parakeet_asr.supports(lang.code) for lang in languages) else ["small"]
+    )
+    for size in whisper_sizes:
         print(f"Reconocimiento de voz (Whisper '{size}')...")
         download_model(size)
     print("Traductor (NLLB-200)...")
@@ -257,6 +266,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
+    print(f"Reconocimiento de voz: {pipeline.asr_name}")
     print(f"Micrófono (tu voz): {pipeline.mic.description}")
     print(f"Salida de la traducción: {pipeline.output.description}")
     mic_name = audio_devices.virtual_mic_name(output.name)
@@ -454,8 +464,9 @@ def build_parser() -> argparse.ArgumentParser:
         "explica cómo conseguirlo). También se puede pasar en la variable HF_TOKEN. No se guarda.",
     )
     p_download.add_argument(
-        "--whisper", nargs="+", default=["tiny", "small"],
-        help="Modelos de reconocimiento de voz: tiny (perfil low) y small (perfil medium)",
+        "--whisper", nargs="+", default=None,
+        help="Modelos de Whisper a descargar (por defecto: tiny, y small si algún idioma no lo entiende "
+        "Parakeet, el reconocimiento más preciso que se baja para español, inglés y otros 23 idiomas)",
     )
     p_download.set_defaults(func=_cmd_download_models)
 

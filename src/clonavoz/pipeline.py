@@ -72,7 +72,8 @@ class LiveVoicePipeline:
         self.error: BaseException | None = None
 
         self._vad = StreamingVAD(max_utterance_seconds=profile.max_utterance_seconds)
-        self._asr = SpeechRecognizer(profile)
+        self._asr = SpeechRecognizer(profile, self.source_language.code)
+        self.asr_name = self._asr.name
         self._translator = Translator(
             self.source_language.nllb_code, self.target_language.nllb_code, device=profile.device
         )

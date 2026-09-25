@@ -8,7 +8,7 @@ Cómo usarlo
 -----------
 1. Doble clic en "Iniciar.bat".
 2. La primera vez:
-   - Opción 6: descarga los modelos (~2 GB, necesita internet una sola vez;
+   - Opción 6: descarga los modelos (~2.2 GB, necesita internet una sola vez;
      quedan guardados en esta carpeta). Te pide un token para la "voz natural"
      (ver abajo); con Enter la salteás y se usa la voz liviana.
    - Opción 2: graba 15 segundos de tu voz.

@@ -20,3 +20,4 @@ sentencepiece>=0.2.0
 piper-tts>=1.3.0
 silero-vad>=6.0
 pocket-tts>=3.3.0
+onnx-asr>=0.12.0

@@ -16,6 +16,7 @@ import sounddevice as sd
 import torch
 from scipy.signal import resample_poly
 
+from clonavoz import parakeet_asr
 from clonavoz.asr import SpeechRecognizer
 from clonavoz.config import get_profile
 from clonavoz.languages import get_language
@@ -52,11 +53,12 @@ def main() -> None:
 
     t = time.perf_counter()
     g = math.gcd(rate, 16000)
-    text = SpeechRecognizer(get_profile("low")).transcribe(
-        resample_poly(audio, 16000 // g, rate // g).astype(np.float32), "es"
-    )
-    assert text, "Whisper no reconoció nada"
-    _step(f"reconocimiento: {text!r}", t)
+    recognizer = SpeechRecognizer(get_profile("low"), "es")
+    if parakeet_asr.ready() and parakeet_asr.enough_memory():
+        assert recognizer.name == "Parakeet", f"con Parakeet descargado se usó {recognizer.name}"
+    text = recognizer.transcribe(resample_poly(audio, 16000 // g, rate // g).astype(np.float32), "es")
+    assert text, f"{recognizer.name} no reconoció nada"
+    _step(f"reconocimiento ({recognizer.name}): {text!r}", t)
 
     t = time.perf_counter()
     english = Translator("spa_Latn", "eng_Latn").translate(text)
