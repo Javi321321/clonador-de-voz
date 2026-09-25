@@ -41,6 +41,12 @@ jobs:
           call dist\clonavoz-portable\clonavoz.bat languages || exit /b 1
           call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
 
+      - name: El menú de Iniciar.bat abre y sale con la opción 0
+        shell: cmd
+        timeout-minutes: 2
+        run: |
+          echo 0| call dist\clonavoz-portable\Iniciar.bat || exit /b 1
+
       - name: Traducir y clonar una voz de punta a punta (sin micrófono)
         shell: cmd
         run: |

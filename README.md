@@ -114,7 +114,7 @@ Para usarlo en cualquier computadora con Windows 10/11 de 64 bits, tuya o de otr
 persona, sin instalar Python ni nada: una carpeta que podés llevar en un pendrive. No
 necesita tarjeta gráfica.
 
-**Conseguirla** (~300 MB comprimida):
+**Conseguirla** (~400 MB comprimida):
 - Ya armada: en GitHub, pestaña **Actions** del repositorio → "Versión portable
   (Windows)" → la última ejecución en verde → sección *Artifacts* →
   `clonavoz-portable-windows-x64` (hay que tener la sesión iniciada en GitHub).
