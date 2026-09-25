@@ -29,6 +29,10 @@ jobs:
       - name: Armar la carpeta portable
         run: python portable/build_windows.py --out dist
 
+      - name: Anotar la hora antes de usar la app
+        shell: pwsh
+        run: (Get-Date).ToUniversalTime().ToString("o") | Out-File -Encoding ascii "$env:RUNNER_TEMP\antes.txt"
+
       - name: Probar los lanzadores sin el Python del sistema
         shell: cmd
         run: |
@@ -44,8 +48,17 @@ jobs:
           set "CLONAVOZ_HOME=%RUNNER_TEMP%\prueba"
           set "HF_HOME=%RUNNER_TEMP%\prueba\modelos"
           set "PYTHONNOUSERSITE=1"
+          set "PYTHONUTF8=1"
           dist\clonavoz-portable\python\python.exe -m clonavoz download-models --languages es en || exit /b 1
           dist\clonavoz-portable\python\python.exe portable\smoke_test.py || exit /b 1
+
+      - name: Ver qué dejó la app en la carpeta del usuario de Windows (debería ser nada)
+        shell: pwsh
+        run: |
+          $antes = [datetime]::Parse((Get-Content "$env:RUNNER_TEMP\antes.txt")).ToUniversalTime()
+          $nuevos = Get-ChildItem -Path $env:USERPROFILE -Recurse -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTimeUtc -gt $antes -and $_.FullName -notmatch '\\AppData\\Local\\Temp\\' }
+          if ($nuevos) { $nuevos | ForEach-Object { "NUEVO: $($_.FullName)" } } else { "Nada nuevo en $env:USERPROFILE" }
 
       - name: Comprimir
         shell: cmd

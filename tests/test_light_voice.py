@@ -89,3 +89,12 @@ def test_every_language_has_a_base_voice_and_calibration():
         assert lang.code in piper_tts._CALIBRATION
     # Idiomas sin ninguna voz en el catálogo de Piper (se pueden agregar a mano).
     assert without_voice == {"hr", "gl", "ms"}
+
+
+def test_library_telemetry_is_disabled():
+    import os
+
+    import clonavoz  # noqa: F401
+
+    assert os.environ["ORT_DISABLE_TELEMETRY"] == "1"
+    assert os.environ["HF_HUB_DISABLE_TELEMETRY"] == "1"

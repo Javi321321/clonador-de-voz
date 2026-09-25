@@ -136,8 +136,9 @@ más rápido que desde uno USB 2.0.
 idiomas elegidos se guardan en la carpeta `datos` de la versión portable. Lo único que se
 instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (opción 7:
 necesita permisos de administrador y reiniciar). Si no podés instalarlo, usá la opción 4
-con auriculares. Cuidá la carpeta `datos` como cualquier dato personal: tiene tu voz
-grabada.
+con auriculares. clonavoz además desactiva la telemetría de las librerías que la traen
+activada (por ejemplo onnxruntime, que si no guardaría un identificador en esa PC). Cuidá
+la carpeta `datos` como cualquier dato personal: tiene tu voz grabada.
 
 ## Instalar FFmpeg (solo para el motor XTTS-v2 en Windows)
 
