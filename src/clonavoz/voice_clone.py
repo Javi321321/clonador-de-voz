@@ -41,6 +41,15 @@ class VoiceSynthesizer:
             self._fallback = FallbackSynthesizer()
         return self._fallback
 
+    def preload(self, language: Language) -> None:
+        """Carga ya el modelo que va a usar `language`. Si se cargara recién
+        con la primera frase, esa frase tardaría medio minuto más en salir
+        (XTTS-v2 es el modelo más pesado) sin que se note por qué."""
+        if language.xtts_code is not None:
+            self._get_xtts()
+        else:
+            self._get_fallback().preload(language.code)
+
     def synthesize(self, text: str, language: Language) -> tuple[np.ndarray, int]:
         if not text.strip():
             return np.array([], dtype=np.float32), 24000

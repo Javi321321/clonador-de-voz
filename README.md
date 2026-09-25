@@ -116,7 +116,17 @@ Solución de problemas más abajo.
 
 ### Windows
 Instala [VB-CABLE](https://vb-audio.com/Cable/) (gratis). Tras instalarlo y reiniciar,
-aparecerá el dispositivo "CABLE Input" — clonavoz lo detecta solo.
+aparecen dos dispositivos, que son las dos puntas del mismo cable:
+
+- **"CABLE Input"** (dispositivo de *salida*): ahí clonavoz reproduce tu voz traducida.
+  clonavoz lo detecta solo.
+- **"CABLE Output"** (dispositivo de *entrada*/micrófono): es el que tenés que elegir como
+  micrófono en Zoom/Meet/Teams/Discord.
+
+Ojo: al instalar VB-CABLE, Windows a veces deja "CABLE Output" como micrófono
+predeterminado y "CABLE Input" como altavoz predeterminado. Volvé a poner tu micrófono y
+tus parlantes/auriculares reales como predeterminados en *Configuración > Sistema >
+Sonido*. (clonavoz igual detecta ese caso y usa tu micrófono real, avisándote en pantalla.)
 
 ### macOS
 Instala [BlackHole](https://existential.audio/blackhole/) (gratis, `brew install blackhole-2ch`).
@@ -140,21 +150,37 @@ Esto crea un sink llamado `clonavoz_mic`. Para eliminarlo después:
 clonavoz devices
 ```
 
-### 2. Graba una muestra de tu voz (una sola vez)
+Marca cuál es tu micrófono predeterminado, cuáles son micrófonos virtuales, y te dice qué
+micrófono elegir en la app de videollamada.
+
+### 2. Probá tu micrófono y el micrófono virtual
+
+```bash
+clonavoz test-audio
+```
+
+Primero muestra un medidor de nivel de tu micrófono durante 8 segundos mientras hablás
+(tiene que moverse y decir `VOZ DETECTADA`); después reproduce 3 pitidos en el micrófono
+virtual y comprueba que lleguen a la otra punta del cable (por ejemplo, a "CABLE Output").
+Si algo falla, te dice la causa probable. Podés elegir otros dispositivos con
+`--input-device N` / `--output-device N` (los números salen de `clonavoz devices`).
+
+### 3. Graba una muestra de tu voz (una sola vez)
 
 ```bash
 clonavoz enroll --seconds 15
 ```
 
-Habla con normalidad, sin ruido de fondo. Se guarda en `~/.clonavoz/mi_voz.wav`.
+Habla con normalidad, sin ruido de fondo. Se guarda en `~/.clonavoz/mi_voz.wav`. Si la
+grabación queda en silencio (micrófono equivocado o bloqueado), no se guarda y te avisa.
 
-### 3. Revisa los idiomas disponibles
+### 4. Revisa los idiomas disponibles
 
 ```bash
 clonavoz languages
 ```
 
-### 4. Inicia la traducción en vivo
+### 5. Inicia la traducción en vivo
 
 ```bash
 clonavoz run --source-lang es --target-lang en
@@ -162,8 +188,20 @@ clonavoz run --source-lang es --target-lang en
 
 Esto detecta tu hardware (`--profile auto` por defecto: podés forzar `low`, `medium` o
 `high` si querés) y detecta el micrófono virtual instalado. Deja esto corriendo y, en
-Zoom/Meet/Teams/Discord, selecciona el micrófono virtual (`CABLE Input`, `BlackHole` o
-`ClonaVoz_Mic.monitor` según tu sistema) como dispositivo de entrada de audio.
+Zoom/Meet/Teams/Discord, selecciona como micrófono la otra punta del cable virtual:
+**`CABLE Output`** en Windows, **`BlackHole 2ch`** en macOS o **`Monitor of ClonaVoz_Mic`**
+en Linux (clonavoz te lo recuerda al arrancar).
+
+Mientras corre, una línea de estado muestra el nivel de tu micrófono y en qué está:
+
+```
+Mic [###########-----]  -14 dB | hablando
+Mic [----------------]  -60 dB | traduciendo 1
+Mic [----------------]  -60 dB | reproduciendo
+```
+
+El micrófono virtual **no se mueve al mismo tiempo que tu voz**: se mueve cuando cada
+frase traducida está lista (`reproduciendo`), unos segundos después de decirla.
 
 Para el sentido contrario (que ellos te hablen en otro idioma y tú lo escuches en
 español), corre una segunda instancia con los idiomas invertidos, escuchando el audio
@@ -198,6 +236,28 @@ Si planeas un uso comercial, revisa las licencias de NLLB-200 y XTTS-v2 antes.
   necesitar ajustes menores según la versión de `piper-tts` instalada.
 
 ## Solución de problemas
+
+**Hablo y el micrófono no se mueve.** Primero corré `clonavoz test-audio`: te dice si el
+problema está en tu micrófono o en el micrófono virtual, y la causa probable. Las más
+comunes:
+
+- **Estás mirando el micrófono virtual mientras hablás.** "CABLE Output" (o "BlackHole
+  2ch" / "Monitor of ClonaVoz_Mic") recién se mueve cuando la frase traducida está lista,
+  unos segundos *después* de decirla. En la línea de estado de
+  `clonavoz run`, `Mic [####...]` tiene que moverse mientras hablás y después pasar a
+  `traduciendo` y `reproduciendo`: ahí es cuando se mueve el micrófono virtual.
+- **clonavoz está escuchando otro micrófono.** Si `Mic [...]` no se mueve cuando hablás,
+  elegí tu micrófono con `--input-device N` (los números salen de `clonavoz devices`). Si
+  el micrófono predeterminado de Windows quedó en "CABLE Output" (pasa al instalar
+  VB-CABLE), clonavoz lo detecta y usa tu micrófono real, pero conviene volver a poner el
+  tuyo como predeterminado en *Configuración > Sistema > Sonido*.
+- **Windows bloquea el micrófono** (el medidor queda en `-60 dB` y aparece el aviso de
+  "silencio absoluto"): *Configuración > Privacidad y seguridad > Micrófono* y activá
+  "Permitir que las aplicaciones de escritorio accedan al micrófono".
+- **En la videollamada elegiste el dispositivo equivocado:** el micrófono a elegir es
+  "CABLE Output", no "CABLE Input" (ni tu micrófono real).
+- **Aparece `Error procesando una frase`:** la frase se escuchó pero no se pudo generar el
+  audio, así que no sale nada. Mirá los errores de abajo (FFmpeg, `transformers`).
 
 **Error `cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils'`**
 al sintetizar voz: significa que se instaló una versión de `transformers` demasiado

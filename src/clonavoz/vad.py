@@ -18,12 +18,17 @@ class StreamingVAD:
     pausa, o al llegar a `max_utterance_seconds` si alguien habla sin pausas."""
 
     def __init__(self, max_utterance_seconds: float = 5.0) -> None:
+        threads = torch.get_num_threads()
         self._model, utils = torch.hub.load(
             repo_or_dir="snakers4/silero-vad",
             model="silero_vad",
             trust_repo=True,
             onnx=False,
         )
+        # silero-vad hace torch.set_num_threads(1) al importarse, y eso vale
+        # para todo el proceso: NLLB y XTTS quedarían usando un solo núcleo y
+        # cada frase tardaría el doble o más en salir traducida.
+        torch.set_num_threads(threads)
         (_, _, _, vad_iterator_cls, _) = utils
         self._iterator = vad_iterator_cls(
             self._model,
@@ -57,6 +62,12 @@ class StreamingVAD:
         self._buffer = []
         self._iterator.reset_states()
         return utterance
+
+    @property
+    def is_speaking(self) -> bool:
+        """True mientras hay una frase en curso (se detectó voz y todavía no
+        terminó la pausa)."""
+        return self._speaking
 
     @staticmethod
     def frame_size() -> int:

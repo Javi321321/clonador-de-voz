@@ -92,6 +92,9 @@ class FallbackSynthesizer:
         self._voices[language_code] = voice
         return voice
 
+    def preload(self, language_code: str) -> None:
+        self._get_voice(language_code)
+
     def synthesize(self, text: str, language_code: str) -> tuple[np.ndarray, int]:
         if not text.strip():
             return np.array([], dtype=np.float32), 22050
