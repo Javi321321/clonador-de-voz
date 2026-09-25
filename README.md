@@ -176,6 +176,10 @@ aparecen dos dispositivos, que son las dos puntas del mismo cable:
 - **"CABLE Output"** (dispositivo de *entrada*/micrófono): es el que tenés que elegir como
   micrófono en Zoom/Meet/Teams/Discord.
 
+En algunas PCs Windows muestra "CABLE Input" con un nombre genérico, como
+"Altavoces (VB-Audio Virtual Cable)" o "Speakers (VB-Audio Virtual Cable)": es el mismo
+dispositivo y clonavoz lo detecta igual.
+
 Ojo: al instalar VB-CABLE, Windows a veces deja "CABLE Output" como micrófono
 predeterminado y "CABLE Input" como altavoz predeterminado. Volvé a poner tu micrófono y
 tus parlantes/auriculares reales como predeterminados en *Configuración > Sistema >
