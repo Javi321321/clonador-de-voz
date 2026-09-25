@@ -14,6 +14,7 @@ fake_sounddevice.install()
 
 from clonavoz import audio_devices  # noqa: E402
 from clonavoz.audio_devices import (  # noqa: E402
+    default_output_device,
     find_virtual_mic_input,
     find_virtual_output_device,
     is_virtual_mic_input,
@@ -102,3 +103,10 @@ def test_is_virtual_mic_input():
     assert is_virtual_mic_input("Monitor of ClonaVoz_Mic")
     assert not is_virtual_mic_input("Micrófono (Realtek(R) Audio)")
     assert not is_virtual_mic_input("Headset Microphone (Jabra Evolve 20)")
+
+
+def test_default_output_device_is_the_system_speakers():
+    fake_sounddevice.windows_with_vb_cable()
+    assert default_output_device().name == "Altavoces (Realtek(R) Audio)"
+    fake_sounddevice.configure([], default_output=None)
+    assert default_output_device() is None

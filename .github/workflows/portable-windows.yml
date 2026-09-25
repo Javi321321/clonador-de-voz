@@ -1,0 +1,59 @@
+# Arma la versión portable de Windows (sin GPU), la prueba en una máquina
+# Windows limpia y deja el .zip para descargar desde la pestaña "Actions".
+name: Versión portable (Windows)
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "portable/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - ".github/workflows/portable-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Armar la carpeta portable
+        run: python portable/build_windows.py --out dist
+
+      - name: Probar los lanzadores sin el Python del sistema
+        shell: cmd
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          call dist\clonavoz-portable\clonavoz.bat --help || exit /b 1
+          call dist\clonavoz-portable\clonavoz.bat languages || exit /b 1
+          call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
+
+      - name: Traducir y clonar una voz de punta a punta (sin micrófono)
+        shell: cmd
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          set "CLONAVOZ_HOME=%RUNNER_TEMP%\prueba"
+          set "HF_HOME=%RUNNER_TEMP%\prueba\modelos"
+          set "PYTHONNOUSERSITE=1"
+          dist\clonavoz-portable\python\python.exe -m clonavoz download-models --languages es en || exit /b 1
+          dist\clonavoz-portable\python\python.exe portable\smoke_test.py || exit /b 1
+
+      - name: Comprimir
+        shell: cmd
+        run: 7z a -tzip -mx=5 dist\clonavoz-portable-windows-x64.zip .\dist\clonavoz-portable > nul
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clonavoz-portable-windows-x64
+          path: dist/clonavoz-portable-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0

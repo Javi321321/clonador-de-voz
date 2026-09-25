@@ -109,6 +109,15 @@ def find_virtual_output_device() -> AudioDevice | None:
     return None
 
 
+def default_output_device() -> AudioDevice | None:
+    """Los parlantes o auriculares predeterminados del sistema."""
+    try:
+        index = sd.query_devices(kind="output")["index"]
+    except (ValueError, sd.PortAudioError):
+        return None
+    return list_devices()[index]
+
+
 def find_virtual_mic_input(output: AudioDevice) -> AudioDevice | None:
     """La punta de entrada del mismo cable virtual que `output` (ej. "CABLE
     Output" para "CABLE Input"), para comprobar que el audio llega."""

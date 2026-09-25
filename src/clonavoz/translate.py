@@ -11,16 +11,19 @@ todas las traducciones, aunque cambien los pares de idiomas.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
+# En Windows, torch y ctranslate2 traen cada uno su copia de libiomp5md.dll
+# (OpenMP): cargando torch primero, ctranslate2 reutiliza esa misma copia en vez
+# de cargar una segunda, que cerraría el programa con "OMP: Error #15".
+import torch  # noqa: F401  (ver arriba: tiene que importarse antes que ctranslate2)
 import ctranslate2
 from transformers import AutoTokenizer
+
+from .paths import data_dir
 
 _ORIGINAL_MODEL = "facebook/nllb-200-distilled-600M"
 _ORIGINAL_REVISION = "f8d333a098d19b4fd9a8b18f94170487ad3f821d"
 _CONVERTED_MODEL = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
 _CONVERTED_REVISION = "302d78f00e6fdb50a1064059df7c392b735e9d05"
-_LOCAL_CONVERSION = Path.home() / ".clonavoz" / "modelos" / "nllb-200-distilled-600M-ct2-int8"
 
 _model = None
 _tokenizer = None
@@ -32,13 +35,20 @@ def _converted_model_dir() -> str:
     try:
         return snapshot_download(_CONVERTED_MODEL, revision=_CONVERTED_REVISION)
     except Exception as exc:  # noqa: BLE001 - sin esa descarga, se convierte localmente
-        if (_LOCAL_CONVERSION / "model.bin").exists():
-            return str(_LOCAL_CONVERSION)
+        local = data_dir() / "modelos" / "nllb-200-distilled-600M-ct2-int8"
+        if (local / "model.bin").exists():
+            return str(local)
         print(f"[clonavoz] No se pudo descargar el traductor ya convertido ({exc}).")
         print("[clonavoz] Convirtiendo NLLB-200 a CTranslate2 (una sola vez, puede tardar unos minutos)...")
         converter = ctranslate2.converters.TransformersConverter(_ORIGINAL_MODEL, revision=_ORIGINAL_REVISION)
-        converter.convert(str(_LOCAL_CONVERSION), quantization="int8")
-        return str(_LOCAL_CONVERSION)
+        converter.convert(str(local), quantization="int8")
+        return str(local)
+
+
+def download() -> None:
+    """Deja el traductor descargado para poder usarlo sin internet."""
+    AutoTokenizer.from_pretrained(_ORIGINAL_MODEL, revision=_ORIGINAL_REVISION)
+    _converted_model_dir()
 
 
 def _load_model(device: str) -> None:

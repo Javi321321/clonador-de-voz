@@ -23,13 +23,15 @@ from pathlib import Path
 
 import numpy as np
 
-_VOICES_DIR = Path.home() / ".clonavoz" / "piper_voices"
+from .paths import data_dir
+
 _HIGH_PITCH_HZ = 160  # a partir de acá se considera una voz aguda
 
 # Voces del catálogo público de Piper (https://huggingface.co/rhasspy/piper-voices),
 # calidad "medium", priorizando licencias libres (CC0, dominio público, CC-BY):
 # (grave, aguda), o una sola si el idioma no tiene otra. Puedes cambiar la voz
-# de un idioma creando ~/.clonavoz/piper_voices.json, ej:
+# de un idioma creando piper_voices.json en la carpeta de datos (~/.clonavoz, o
+# `datos` en la versión portable), ej:
 #   {"bn": "bn_BD-nombre_de_la_voz-medium"}
 _VOICES: dict[str, tuple[str, ...]] = {
     "es": ("es_ES-davefx-medium", "es_MX-ald-medium"),
@@ -140,7 +142,7 @@ def median_pitch(audio: np.ndarray, sample_rate: int) -> float | None:
 
 
 def _user_overrides() -> dict:
-    path = Path.home() / ".clonavoz" / "piper_voices.json"
+    path = data_dir() / "piper_voices.json"
     if path.exists():
         return json.loads(path.read_text())
     return {}
@@ -157,21 +159,37 @@ def resolve_voice_id(language_code: str, speaker_pitch_hz: float | None = None) 
     raise RuntimeError(
         f"No hay una voz Piper configurada para el idioma '{language_code}'.\n"
         "Busca un modelo para ese idioma en https://huggingface.co/rhasspy/piper-voices "
-        f"y agrégalo en ~/.clonavoz/piper_voices.json, por ejemplo:\n"
+        f"y agrégalo en {data_dir() / 'piper_voices.json'}, por ejemplo:\n"
         f'  {{"{language_code}": "xx_XX-nombre-medium"}}'
     )
 
 
 def _ensure_voice_downloaded(voice_id: str) -> Path:
-    _VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    onnx_path = _VOICES_DIR / f"{voice_id}.onnx"
+    voices_dir = data_dir() / "piper_voices"
+    voices_dir.mkdir(parents=True, exist_ok=True)
+    onnx_path = voices_dir / f"{voice_id}.onnx"
     if not onnx_path.exists():
         print(f"[clonavoz] Descargando voz Piper '{voice_id}' (una sola vez)...")
         subprocess.run(
-            [sys.executable, "-m", "piper.download_voices", voice_id, "--download-dir", str(_VOICES_DIR)],
+            [sys.executable, "-m", "piper.download_voices", voice_id, "--download-dir", str(voices_dir)],
             check=True,
         )
     return onnx_path
+
+
+def download_voices(language_code: str) -> list[str]:
+    """Descarga todas las voces base de un idioma (grave y aguda), para poder
+    usarlo después sin internet sea cual sea el tono de la muestra de voz."""
+    overrides = _user_overrides()
+    if language_code in overrides:
+        voice_ids = [overrides[language_code]]
+    elif language_code in _VOICES:
+        voice_ids = list(_VOICES[language_code])
+    else:
+        voice_ids = [resolve_voice_id(language_code)]  # lanza el error explicativo
+    for voice_id in voice_ids:
+        _ensure_voice_downloaded(voice_id)
+    return voice_ids
 
 
 class PiperSynthesizer:

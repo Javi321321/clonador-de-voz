@@ -73,9 +73,8 @@ def test_base_voice_follows_speaker_pitch():
 
 
 def test_user_override_wins(tmp_path, monkeypatch):
-    monkeypatch.setattr(piper_tts.Path, "home", lambda: tmp_path)
-    (tmp_path / ".clonavoz").mkdir()
-    (tmp_path / ".clonavoz" / "piper_voices.json").write_text(json.dumps({"en": "en_GB-alba-medium"}))
+    monkeypatch.setenv("CLONAVOZ_HOME", str(tmp_path))  # como la versión portable
+    (tmp_path / "piper_voices.json").write_text(json.dumps({"en": "en_GB-alba-medium"}))
     assert resolve_voice_id("en", 110) == "en_GB-alba-medium"
 
 

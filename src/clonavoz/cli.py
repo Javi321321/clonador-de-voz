@@ -17,8 +17,9 @@ from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream, beep_sign
 from .console import StatusLine, format_meter
 from .enroll import record_voice_sample
 from .languages import get_language, list_languages
+from .paths import data_dir
 
-DEFAULT_VOICE_SAMPLE = Path.home() / ".clonavoz" / "mi_voz.wav"
+DEFAULT_VOICE_SAMPLE = data_dir() / "mi_voz.wav"
 _WINDOWS = platform.system() == "Windows"
 
 
@@ -66,7 +67,50 @@ def _cmd_enroll(args: argparse.Namespace) -> None:
     print(f"Muestra de voz guardada en: {out_path}")
 
 
-def _resolve_output_device(requested: int | None) -> audio_devices.AudioDevice:
+def _cmd_download_models(args: argparse.Namespace) -> None:
+    languages = []
+    for code in args.languages:
+        try:
+            languages.append(get_language(code))
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+
+    from . import openvoice, piper_tts, translate  # translate carga torch antes que ctranslate2
+
+    from faster_whisper.utils import download_model
+
+    for size in args.whisper:
+        print(f"Reconocimiento de voz (Whisper '{size}')...")
+        download_model(size)
+    print("Traductor (NLLB-200)...")
+    translate.download()
+    print("Conversor de timbre (OpenVoice V2)...")
+    openvoice.ToneColorConverter.from_pretrained()
+    for lang in languages:
+        print(f"Voces base de Piper para {lang.name}...")
+        try:
+            piper_tts.download_voices(lang.code)
+        except RuntimeError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+    (data_dir() / "modelos_listos.txt").write_text(
+        "Modelos descargados para: " + ", ".join(lang.code for lang in languages) + "\n", encoding="utf-8"
+    )
+    print(f"Listo: ya se puede usar sin internet (datos en {data_dir()}).")
+
+
+def _resolve_output_device(requested: int | None, to_speakers: bool = False) -> audio_devices.AudioDevice:
+    if to_speakers:
+        speakers = audio_devices.default_output_device()
+        if speakers is None:
+            print("No se encontró una salida de audio (parlantes o auriculares).", file=sys.stderr)
+            sys.exit(1)
+        print(
+            f"La traducción va a sonar en [{speakers.index}] {speakers.name}. Usá auriculares: si "
+            "suena por parlantes, el micrófono la vuelve a escuchar y la traduce de nuevo."
+        )
+        return speakers
     if requested is not None:
         devices = audio_devices.list_devices()
         if 0 <= requested < len(devices) and devices[requested].max_output_channels > 0:
@@ -133,7 +177,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
     reference_wav = Path(args.voice_sample) if args.voice_sample else DEFAULT_VOICE_SAMPLE
     _check_voice_sample(reference_wav)
-    output = _resolve_output_device(args.output_device)
+    output = _resolve_output_device(args.output_device, to_speakers=args.to_speakers)
     input_device, notes = audio_devices.resolve_input_device(args.input_device)
     for note in notes:
         print(note)
@@ -349,12 +393,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_enroll.add_argument("--input-device", type=int, default=None)
     p_enroll.set_defaults(func=_cmd_enroll)
 
+    p_download = sub.add_parser(
+        "download-models", help="Descarga todo lo necesario para usar clonavoz sin internet"
+    )
+    p_download.add_argument(
+        "--languages", nargs="+", default=["es", "en"],
+        help="Idiomas que vas a hacer escuchar (sus voces base), ej: en pt fr. Por defecto: es en",
+    )
+    p_download.add_argument(
+        "--whisper", nargs="+", default=["tiny", "small"],
+        help="Modelos de reconocimiento de voz: tiny (perfil low) y small (perfil medium)",
+    )
+    p_download.set_defaults(func=_cmd_download_models)
+
     p_run = sub.add_parser("run", help="Inicia la traducción de voz en vivo")
     p_run.add_argument("--source-lang", required=True, help="Idioma en el que hablas, ej: es")
     p_run.add_argument("--target-lang", required=True, help="Idioma que escucharán, ej: en")
     p_run.add_argument("--voice-sample", help="Ruta al .wav de referencia de tu voz")
     p_run.add_argument("--input-device", type=int, default=None, help="Índice del micrófono de entrada")
     p_run.add_argument("--output-device", type=int, default=None, help="Índice del micrófono virtual de salida")
+    p_run.add_argument(
+        "--to-speakers",
+        action="store_true",
+        help="Escuchar la traducción en tus auriculares en vez de mandarla a una videollamada "
+        "(no necesita micrófono virtual)",
+    )
     p_run.add_argument(
         "--profile",
         default="auto",

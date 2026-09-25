@@ -1,0 +1,25 @@
+﻿clonavoz portable — traductor de voz en vivo con tu propia voz
+==============================================================
+
+Funciona en cualquier Windows 10/11 de 64 bits sin instalar nada: podés llevar
+esta carpeta en un pendrive. No necesita tarjeta gráfica.
+
+Cómo usarlo
+-----------
+1. Doble clic en "Iniciar.bat".
+2. La primera vez:
+   - Opción 6: descarga los modelos (~1.6 GB, necesita internet una sola vez;
+     quedan guardados en esta carpeta).
+   - Opción 2: graba 15 segundos de tu voz.
+3. Opción 1 para usarlo en una videollamada (en Zoom/Meet/Teams/Discord elegí
+   "CABLE Output" como micrófono), u opción 4 para escucharlo en auriculares.
+
+Tu voz y tus datos
+------------------
+Todo queda dentro de la carpeta "datos" de esta carpeta portable: tu muestra
+de voz, los modelos y los idiomas elegidos. En la computadora donde lo usás no
+se guarda nada tuyo. Lo único que se instala en esa PC, y solo si lo elegís,
+es el micrófono virtual VB-CABLE (opción 7), que necesita ser administrador.
+
+Si esa PC no te deja instalar VB-CABLE, podés usar la opción 4 con
+auriculares.

@@ -108,6 +108,37 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements-xtts.txt
 ```
 
+## Versión portable (Windows, sin instalar nada)
+
+Para usarlo en cualquier computadora con Windows 10/11 de 64 bits, tuya o de otra
+persona, sin instalar Python ni nada: una carpeta que podés llevar en un pendrive. No
+necesita tarjeta gráfica.
+
+**Conseguirla** (~300 MB comprimida):
+- Ya armada: en GitHub, pestaña **Actions** del repositorio → "Versión portable
+  (Windows)" → la última ejecución en verde → sección *Artifacts* →
+  `clonavoz-portable-windows-x64` (hay que tener la sesión iniciada en GitHub).
+- O armala vos en una PC con Windows y Python 3.10+: `python portable/build_windows.py --zip`
+  (queda en `dist\`).
+
+**Usarla:** extraé el zip donde quieras (por ejemplo, en el pendrive) y hacé doble clic
+en `Iniciar.bat`. Aparece un menú:
+1. La primera vez: opción **6** para descargar los modelos (~1.6 GB, necesita internet una
+   sola vez) y opción **2** para grabar tu voz.
+2. Opción **1** para usarlo en una videollamada (elegí "CABLE Output" como micrófono en la
+   app), u opción **4** para escuchar la traducción vos mismo en auriculares.
+
+Necesita ~3 GB libres en el pendrive o disco (programa ~1 GB + modelos ~1.6 GB) y al menos
+4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca bastante
+más rápido que desde uno USB 2.0.
+
+**Qué queda en la otra computadora: nada tuyo.** Tu muestra de voz, los modelos y los
+idiomas elegidos se guardan en la carpeta `datos` de la versión portable. Lo único que se
+instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (opción 7:
+necesita permisos de administrador y reiniciar). Si no podés instalarlo, usá la opción 4
+con auriculares. Cuidá la carpeta `datos` como cualquier dato personal: tiene tu voz
+grabada.
+
 ## Instalar FFmpeg (solo para el motor XTTS-v2 en Windows)
 
 El motor liviano (el que se usa sin GPU) no necesita FFmpeg. Con XTTS-v2 sí: desde PyTorch 2.9 (obligatorio si tenés Python 3.13/3.14, ya que no hay builds de

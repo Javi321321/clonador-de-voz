@@ -4,6 +4,11 @@ optimizado con CTranslate2), que corre bien en CPU y soporta unos 99 idiomas.
 from __future__ import annotations
 
 import numpy as np
+
+# En Windows, torch y ctranslate2 traen cada uno su copia de libiomp5md.dll
+# (OpenMP): cargando torch primero, ctranslate2 reutiliza esa misma copia en vez
+# de cargar una segunda, que cerraría el programa con "OMP: Error #15".
+import torch  # noqa: F401  (ver arriba: tiene que importarse antes que ctranslate2)
 from faster_whisper import WhisperModel
 
 from .config import PerformanceProfile

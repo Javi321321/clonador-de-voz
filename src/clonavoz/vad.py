@@ -19,17 +19,24 @@ class StreamingVAD:
 
     def __init__(self, max_utterance_seconds: float = 5.0) -> None:
         threads = torch.get_num_threads()
-        self._model, utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            trust_repo=True,
-            onnx=False,
-        )
+        try:
+            # El paquete de pip trae el modelo adentro: no necesita internet.
+            import silero_vad
+
+            self._model = silero_vad.load_silero_vad(onnx=False)
+            vad_iterator_cls = silero_vad.VADIterator
+        except ImportError:
+            self._model, utils = torch.hub.load(
+                repo_or_dir="snakers4/silero-vad",
+                model="silero_vad",
+                trust_repo=True,
+                onnx=False,
+            )
+            (_, _, _, vad_iterator_cls, _) = utils
         # silero-vad hace torch.set_num_threads(1) al importarse, y eso vale
-        # para todo el proceso: NLLB y XTTS quedarían usando un solo núcleo y
-        # cada frase tardaría el doble o más en salir traducida.
+        # para todo el proceso: la traducción y la voz quedarían usando un solo
+        # núcleo y cada frase tardaría el doble o más en salir traducida.
         torch.set_num_threads(threads)
-        (_, _, _, vad_iterator_cls, _) = utils
         self._iterator = vad_iterator_cls(
             self._model,
             sampling_rate=16000,
