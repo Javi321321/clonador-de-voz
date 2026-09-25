@@ -22,7 +22,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from .asr import SpeechRecognizer
+from .audio_devices import SAMPLE_RATE
 from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream
 from .config import PerformanceProfile
 from .languages import Language, get_language
@@ -73,7 +76,7 @@ class LiveVoicePipeline:
         self._translator = Translator(
             self.source_language.nllb_code, self.target_language.nllb_code, device=profile.device
         )
-        self._synth = VoiceSynthesizer(profile, reference_wav)
+        self._synth = VoiceSynthesizer(profile, reference_wav, engine=profile.voice_engine)
         self._synth.preload(self.target_language)
 
         self._frame_queue: "queue.Queue" = queue.Queue()
@@ -85,6 +88,18 @@ class LiveVoicePipeline:
         self._playing = False
         self._last_error = ""
         self._threads: list[threading.Thread] = []
+        self._warm_up()
+
+    def _warm_up(self) -> None:
+        """Una pasada de prueba por cada modelo al arrancar: la primera llamada
+        a cada uno es bastante más lenta (reserva memoria, prepara cálculos), y
+        así eso no le toca a tu primera frase. Si la síntesis falla (por
+        ejemplo, falta FFmpeg para XTTS), el error se ve ya al arrancar."""
+        try:
+            self._asr.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), self.source_language.whisper_code)
+            self._synth.synthesize(self._translator.translate("Hola."), self.target_language)
+        except Exception as exc:  # noqa: BLE001 - se informa igual que el error de una frase
+            self._report_phrase_error(exc)
 
     def start(self) -> None:
         """Abre la salida y el micrófono y arranca los hilos. Si un

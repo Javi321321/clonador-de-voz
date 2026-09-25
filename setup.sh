@@ -17,29 +17,36 @@ pip install --upgrade pip
 
 OS_NAME=$(uname -s)
 
+HAS_NVIDIA=0
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-    echo "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-else
-    echo "Sin GPU NVIDIA detectada: instalando PyTorch para CPU..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+    HAS_NVIDIA=1
 fi
 
-# PyTorch 2.9+ usa torchcodec para cargar/escribir audio, que a su vez
-# necesita FFmpeg. En Linux/macOS es un paquete normal, no el lío de DLLs
-# sueltas que es en Windows.
-if ! command -v ffmpeg >/dev/null 2>&1; then
-    echo ""
-    echo "AVISO: no se encontró 'ffmpeg' en el sistema. Instalalo antes de usar 'clonavoz run':"
-    if [ "$(uname -s)" = "Darwin" ]; then
-        echo "  brew install ffmpeg"
-    else
-        echo "  sudo apt install ffmpeg   (Debian/Ubuntu; usa el gestor de paquetes de tu distro)"
-    fi
+if [ "$HAS_NVIDIA" = "1" ]; then
+    echo "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA y el motor de voz XTTS-v2..."
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+else
+    echo "Sin GPU NVIDIA detectada: instalando PyTorch para CPU y el motor de voz liviano..."
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
 fi
 
 pip install -r requirements.txt
 pip install -e .
+
+if [ "$HAS_NVIDIA" = "1" ]; then
+    pip install -r requirements-xtts.txt
+    # PyTorch 2.9+ usa torchcodec para cargar/escribir audio (lo usa XTTS-v2),
+    # que a su vez necesita FFmpeg. En Linux/macOS es un paquete normal.
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        echo ""
+        echo "AVISO: no se encontró 'ffmpeg' en el sistema; XTTS-v2 lo necesita. Instalalo con:"
+        if [ "$(uname -s)" = "Darwin" ]; then
+            echo "  brew install ffmpeg"
+        else
+            echo "  sudo apt install ffmpeg   (Debian/Ubuntu; usa el gestor de paquetes de tu distro)"
+        fi
+    fi
+fi
 
 echo ""
 echo "Listo. En cada terminal nueva, activa el entorno con:"

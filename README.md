@@ -12,29 +12,43 @@ modesta hasta una notebook gamer con GPU).
 Este proyecto corre modelos de IA (reconocimiento de voz, traducción y síntesis con
 clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias importantes:
 
-1. **La latencia nunca será cero.** Vas a escuchar cada frase traducida entre
-   **1 y 3-4 segundos** después de que la digas (más en equipos de bajos recursos, menos
-   con GPU). Es el mismo orden de magnitud que usan los sistemas profesionales de
-   interpretación simultánea con IA. "Tiempo real absoluto sin ningún retraso" no es
-   posible con un pipeline 100% local en CPU — si en algún momento quieres bajar la
-   latencia a casi cero, la única forma es usar servicios en la nube (más rápidos porque
-   corren en servidores potentes), que quedan fuera del alcance de este proyecto porque
-   pediste que todo sea local y gratis.
-2. **La clonación de tu voz solo funciona en ~17 idiomas** (los que soporta XTTS-v2,
-   el mejor modelo abierto de clonación de voz que existe hoy: español, inglés,
-   portugués, francés, alemán, italiano, neerlandés, polaco, ruso, turco, árabe, chino,
-   japonés, coreano, húngaro, checo, hindi). Para el resto de los ~200 idiomas que sí se
-   pueden traducir, el sistema sigue funcionando de punta a punta, pero usa una voz
-   neutra de buena calidad en vez de tu timbre clonado. Es un límite real de la
-   tecnología abierta actual, no algo que se pueda resolver con más código.
+1. **La traducción no puede salir en el mismo instante en que hablás.** Ningún
+   traductor (ni una persona intérprete) puede: para traducir una frase hay que
+   escucharla primero, y los idiomas ordenan las palabras distinto (el verbo, por
+   ejemplo, puede ir al final). Los intérpretes profesionales van 2-3 segundos atrás.
+   clonavoz traduce cada frase apenas hacés una pausa: en nuestras pruebas, sin GPU,
+   la traducción terminó de sonar **unos 4 segundos** después de que terminaste de
+   hablar, tanto con 4 núcleos como con 2 (una computadora modesta). En frases largas,
+   la primera parte ya empieza a sonar mientras seguís hablando.
+2. **Tu voz clonada funciona en ~37 idiomas**, todos los que tienen una voz de Piper
+   (español, inglés, portugués, francés, alemán, italiano, neerlandés, polaco, ruso,
+   turco, árabe, chino, japonés, coreano, húngaro, checo, hindi, ucraniano, sueco,
+   noruego, danés, finés, griego, rumano, búlgaro, eslovaco, serbio, catalán, euskera,
+   hebreo, vietnamita, tailandés, indonesio, bengalí, persa, urdu y suajili). Para el
+   resto de los ~200 idiomas que se pueden traducir, hay que agregar una voz a mano
+   (ver `piper_tts.py`). El parecido con tu voz es muy bueno pero no perfecto, y la
+   entonación de cada frase la pone el modelo: no copia exactamente cómo la dijiste.
 
 ## Cómo funciona
 
 ```
 tu micrófono → VAD (detecta pausas) → Whisper (ASR) → NLLB-200 (traducción)
-   → XTTS-v2 clonando tu voz (o Piper si el idioma no tiene clonación)
+   → Piper (voz rápida) + OpenVoice (le pone tu timbre)   ← sin GPU (por defecto)
+     o XTTS-v2 clonando tu voz                            ← con GPU NVIDIA
    → micrófono virtual → tu app de videollamada
 ```
+
+Hay dos motores para generar tu voz (se elige solo, o con `--voice-engine`):
+
+| Motor | Cuándo se usa | Voz de una frase de ~3 s | Memoria | Idiomas con tu voz |
+|---|---|---|---|---|
+| `openvoice` (Piper + OpenVoice) | sin GPU NVIDIA | ~0.6 s (4 núcleos), ~0.9 s (2 núcleos) | ~2 GB en total | ~37 |
+| `xtts` (XTTS-v2) | con GPU NVIDIA | ~4.5 s (4 núcleos), ~9 s (2 núcleos) sin GPU | ~6 GB en total | 17 |
+
+En nuestras pruebas con la voz de una persona real, los dos se parecen igual a la voz
+original (0.92-0.93 en una escala donde la misma persona en otra grabación da 0.98 y
+otra persona ~0.66). XTTS-v2 tiene una entonación algo más natural; con GPU es rápido,
+sin GPU es varias veces más lento.
 
 El "micrófono virtual" es la pieza clave de portabilidad: en vez de integrarse con cada
 app de videollamada por separado, clonavoz escribe el audio traducido en un dispositivo
@@ -44,8 +58,9 @@ por eso funciona con **todo lo que exista**, sin plugins específicos por app.
 
 ## Instalación de un solo comando
 
-Requiere Python 3.10+. Los scripts detectan solos si tienes GPU NVIDIA e instalan el
-PyTorch correcto (CPU o CUDA) además del resto de dependencias.
+Requiere Python 3.10+. Los scripts detectan solos si tienes GPU NVIDIA: sin GPU instalan
+el motor de voz liviano (no hace falta FFmpeg); con GPU instalan además PyTorch con CUDA
+y el motor XTTS-v2.
 
 **Linux / macOS:**
 ```bash
@@ -72,24 +87,30 @@ docker compose run --rm clonavoz devices
 En Windows/macOS, Docker Desktop no da acceso confiable al audio en tiempo real del
 host — en esos sistemas usa `setup.ps1`/`setup.sh` en lugar de Docker.
 
-La primera vez que uses cada idioma, se descargan sus modelos (Whisper, NLLB-200,
-XTTS-v2 y, si aplica, la voz Piper de respaldo) — en total pueden ser varios GB, y
-necesitas internet solo para esa descarga inicial. Después de eso, todo funciona sin
-conexión.
+La primera vez se descargan los modelos (Whisper, NLLB-200, el conversor de OpenVoice y
+la voz de Piper de cada idioma que uses; con XTTS-v2, también ese modelo): alrededor de
+1 GB con el motor liviano, varios GB con XTTS-v2. Necesitas internet solo para esa
+descarga inicial; después, todo funciona sin conexión.
 
 ### Instalación manual (alternativa a los scripts)
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate   # en Windows: .venv\Scripts\activate
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu  # o /whl/cu121 con GPU NVIDIA
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 pip install -e .
 ```
 
-## Instalar FFmpeg (necesario en Windows)
+Para el motor XTTS-v2 (recomendado solo con GPU NVIDIA), además:
+```bash
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements-xtts.txt
+```
 
-Desde PyTorch 2.9 (obligatorio si tenés Python 3.13/3.14, ya que no hay builds de
+## Instalar FFmpeg (solo para el motor XTTS-v2 en Windows)
+
+El motor liviano (el que se usa sin GPU) no necesita FFmpeg. Con XTTS-v2 sí: desde PyTorch 2.9 (obligatorio si tenés Python 3.13/3.14, ya que no hay builds de
 PyTorch anteriores para esas versiones), `torchaudio` necesita `torchcodec` para
 cargar y escribir audio, y `torchcodec` a su vez necesita FFmpeg. En Linux/macOS es
 un paquete común (`apt install ffmpeg` / `brew install ffmpeg`, `setup.sh` te avisa
@@ -209,31 +230,47 @@ de salida de la llamada como entrada y reproduciendo hacia tus audífonos.
 
 ## Perfiles de rendimiento
 
-| Perfil | Cuándo se usa | Whisper | Latencia aprox. |
+| Perfil | Cuándo se usa | Whisper | Motor de voz |
 |---|---|---|---|
-| `low` | Laptop sin GPU, poca RAM | `tiny` | ~3-5 s |
-| `medium` | Laptop de gama media / Apple Silicon | `small` | ~1.5-3 s |
-| `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | `medium` | ~1-2 s |
+| `low` | Laptop sin GPU, poca RAM | `tiny` | `openvoice` (liviano) |
+| `medium` | Laptop de gama media / Apple Silicon | `small` | `openvoice` (liviano) |
+| `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | `medium` | `xtts` (XTTS-v2) |
 
-`auto` (por defecto) elige el perfil según la RAM, núcleos de CPU y GPU detectados.
+`auto` (por defecto) elige el perfil según la RAM, núcleos de CPU y GPU detectados. Con
+el perfil `low`, en nuestras pruebas sin GPU (con 4 y con 2 núcleos) la traducción de una
+frase de 6 segundos terminó de sonar ~4 segundos después de terminar de hablar, usando
+~2 GB de memoria. `medium` reconoce mejor lo que decís (Whisper `small`) a cambio de un
+poco más de demora.
 
 ## Licencias de los modelos usados
 
 - Whisper (faster-whisper): MIT.
-- NLLB-200: CC-BY-NC 4.0 (uso no comercial).
-- XTTS-v2: Coqui Public Model License (uso no comercial sin licencia adicional).
-- Piper: MIT.
+- NLLB-200: CC-BY-NC 4.0 (uso no comercial). Se usa una conversión a CTranslate2 del
+  mismo modelo, con la misma licencia.
+- OpenVoice V2 (conversor de timbre, incluido en `openvoice.py`): MIT.
+- Piper: MIT. Cada voz tiene su propia licencia: la mayoría de las elegidas son CC0,
+  dominio público o CC-BY (permiten uso comercial). Las de turco, japonés, coreano,
+  hindi, serbio y tailandés son de uso no comercial, y las de árabe, chino, hebreo,
+  indonesio, suajili y las voces agudas de ruso y sueco no declaran una licencia clara
+  (ver el `MODEL_CARD` de cada voz en https://huggingface.co/rhasspy/piper-voices).
+- XTTS-v2 (motor opcional): Coqui Public Model License (uso no comercial sin licencia
+  adicional).
 
-Si planeas un uso comercial, revisa las licencias de NLLB-200 y XTTS-v2 antes.
+Si planeas un uso comercial: con el motor liviano, lo único de uso no comercial es
+NLLB-200 (y las voces de Piper mencionadas); con XTTS-v2, también ese modelo.
 
 ## Limitaciones conocidas / roadmap
 
 - No hay interfaz gráfica todavía (solo línea de comandos).
-- La clonación de voz cross-idioma es de mejor calidad en pares con buen soporte de
-  Whisper/XTTS (ej. es↔en, es↔pt); en idiomas del fallback Piper, la calidad de voz es
-  buena pero no es tu timbre.
-- El fallback Piper (`piper_fallback.py`) es la parte más nueva del código y puede
-  necesitar ajustes menores según la versión de `piper-tts` instalada.
+- La voz clonada copia tu timbre, pero la entonación de cada frase la pone el modelo
+  (Piper o XTTS-v2): no copia la emoción exacta con la que la dijiste.
+- El motor liviano elige, para cada idioma, una voz base grave o aguda según el tono de
+  tu muestra de voz. En algunos idiomas hay una sola voz disponible (por ejemplo, alemán
+  e italiano), y ahí el parecido puede ser algo menor si tu tono es muy distinto.
+- Japonés y tailandés necesitan un paquete extra de Python para leer ese idioma
+  (`pip install pyopenjtalk` / `pip install tltk`; el error te lo indica). Croata,
+  gallego y malayo todavía no tienen voz de Piper: se puede agregar una en
+  `~/.clonavoz/piper_voices.json`.
 
 ## Solución de problemas
 
@@ -257,7 +294,8 @@ comunes:
 - **En la videollamada elegiste el dispositivo equivocado:** el micrófono a elegir es
   "CABLE Output", no "CABLE Input" (ni tu micrófono real).
 - **Aparece `Error procesando una frase`:** la frase se escuchó pero no se pudo generar el
-  audio, así que no sale nada. Mirá los errores de abajo (FFmpeg, `transformers`).
+  audio, así que no sale nada. Mirá los errores de abajo (FFmpeg, `transformers`). Si
+  usás XTTS-v2 sin GPU, probá el motor liviano: `--voice-engine openvoice`.
 
 **Error `cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils'`**
 al sintetizar voz: significa que se instaló una versión de `transformers` demasiado

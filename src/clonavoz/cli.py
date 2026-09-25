@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import platform
 import queue
 import sys
@@ -114,12 +115,21 @@ def _cmd_run(args: argparse.Namespace) -> None:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    # Importes pesados (torch, Whisper, NLLB, XTTS) solo para este comando.
+    # Importes pesados (torch, Whisper, NLLB, voz) solo para este comando.
     from .config import get_profile
     from .pipeline import LiveVoicePipeline
+    from .voice_clone import xtts_installed
 
     profile = get_profile(args.profile)
-    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device})")
+    engine = profile.voice_engine if args.voice_engine == "auto" else args.voice_engine
+    if engine == "xtts" and not xtts_installed():
+        if args.voice_engine == "xtts":
+            print('El motor XTTS no está instalado. Instálalo con: pip install "coqui-tts[codec]"', file=sys.stderr)
+            sys.exit(1)
+        engine = "openvoice"
+    profile = dataclasses.replace(profile, voice_engine=engine)
+    engine_name = "liviano (Piper + OpenVoice)" if engine == "openvoice" else "XTTS-v2"
+    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device}, voz: {engine_name})")
 
     reference_wav = Path(args.voice_sample) if args.voice_sample else DEFAULT_VOICE_SAMPLE
     _check_voice_sample(reference_wav)
@@ -135,16 +145,20 @@ def _cmd_run(args: argparse.Namespace) -> None:
         status.print(f"  {args.target_lang} > {text_tgt}")
 
     print("Cargando modelos (la primera vez se descargan y puede tardar varios minutos)...")
-    pipeline = LiveVoicePipeline(
-        profile=profile,
-        source_lang=args.source_lang,
-        target_lang=args.target_lang,
-        reference_wav=reference_wav,
-        input_device=input_device,
-        output_device=output.index,
-        on_transcript=on_transcript,
-        on_message=status.print,
-    )
+    try:
+        pipeline = LiveVoicePipeline(
+            profile=profile,
+            source_lang=args.source_lang,
+            target_lang=args.target_lang,
+            reference_wav=reference_wav,
+            input_device=input_device,
+            output_device=output.index,
+            on_transcript=on_transcript,
+            on_message=status.print,
+        )
+    except RuntimeError as exc:  # ej. idioma sin voz de Piper, o le falta un paquete
+        print(exc, file=sys.stderr)
+        sys.exit(1)
     try:
         pipeline.start()
     except AudioDeviceError as exc:
@@ -346,6 +360,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=["auto", "low", "medium", "high"],
         help="Perfil de rendimiento. 'auto' detecta tu hardware.",
+    )
+    p_run.add_argument(
+        "--voice-engine",
+        default="auto",
+        choices=["auto", "openvoice", "xtts"],
+        help="Cómo se genera tu voz: 'openvoice' (liviano y rápido, por defecto sin GPU) o "
+        "'xtts' (XTTS-v2, más pesado; por defecto con GPU NVIDIA).",
     )
     p_run.set_defaults(func=_cmd_run)
 

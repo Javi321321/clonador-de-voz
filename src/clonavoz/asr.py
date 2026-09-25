@@ -25,5 +25,13 @@ class SpeechRecognizer:
             beam_size=1,
             vad_filter=False,
             condition_on_previous_text=False,
+            # Hasta 2 reintentos si Whisper duda (por defecto son 5, y en vivo
+            # cada uno suma demora). Y un poco menos estricto para decidir
+            # "esto no es voz" (0.6 por defecto), porque así se descartaban a
+            # veces frases bien dichas; con 0.75 igual se descartan silencio,
+            # ruido, golpes y zumbidos (dan 0.84 o más), que si no Whisper los
+            # "transcribe" como frases inventadas.
+            temperature=(0.0, 0.2, 0.4),
+            no_speech_threshold=0.75,
         )
         return " ".join(segment.text.strip() for segment in segments).strip()
