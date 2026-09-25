@@ -5,6 +5,8 @@ latencia baja: cada frase se procesa tan pronto como se termina de decir.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import torch
 
@@ -23,7 +25,11 @@ class StreamingVAD:
             # El paquete de pip trae el modelo adentro: no necesita internet.
             import silero_vad
 
-            self._model = silero_vad.load_silero_vad(onnx=False)
+            with warnings.catch_warnings():
+                # Aviso interno de PyTorch sobre cómo está guardado el modelo:
+                # no afecta en nada y confundía al aparecer en cada arranque.
+                warnings.filterwarnings("ignore", message=".*torch.jit.load", category=FutureWarning)
+                self._model = silero_vad.load_silero_vad(onnx=False)
             vad_iterator_cls = silero_vad.VADIterator
         except ImportError:
             self._model, utils = torch.hub.load(

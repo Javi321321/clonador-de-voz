@@ -215,6 +215,11 @@ class Clonavoz:
             self._proc.wait(timeout=30)
         self._reader.join(timeout=5)
 
+    def check_clean_console(self) -> None:
+        """Que el usuario no vea avisos técnicos de las librerías ni errores de Python."""
+        noisy = [line for _, line in self.lines if re.search(r"Warning|Traceback", line)]
+        check(not noisy, f"la consola no muestra avisos técnicos {noisy[:2] if noisy else ''}")
+
 
 def sound_span(
     audio: np.ndarray, since: float, threshold_db: float = -40.0, silence: float = 0.8
@@ -272,6 +277,7 @@ def step_default_microphone(cable_out) -> None:
         "los pitidos llegan al micrófono virtual (lo que escucha la videollamada)",
     )
     check(code == 1, "termina con error, por el micrófono")
+    proc.check_clean_console()
 
 
 def step_microphone_with_voice(cable_in, cable_out, voice, voice_rate) -> None:
@@ -281,6 +287,7 @@ def step_microphone_with_voice(cable_in, cable_out, voice, voice_rate) -> None:
         code = proc.wait(timeout=180)
     check("OK: clonavoz escucha bien tu micrófono" in proc.output, "el medidor escucha tu voz y detecta que es voz")
     check(code == 0, "test-audio termina sin problemas")
+    proc.check_clean_console()
 
 
 def step_enroll(cable_in, cable_out, voice, voice_rate, recognizer) -> None:
@@ -289,6 +296,7 @@ def step_enroll(cable_in, cable_out, voice, voice_rate, recognizer) -> None:
     with Talker(cable_in.index, voice, voice_rate):
         proc = Clonavoz("enroll", "--input-device", cable_out.index, "--seconds", "12")
         code = proc.wait(timeout=180)
+    proc.check_clean_console()
     if not check(code == 0 and sample.exists(), "enroll guardó la muestra de voz"):
         return
     shutil.copy2(sample, OUT / "2_muestra_grabada_con_enroll.wav")
@@ -331,6 +339,7 @@ def step_run(number: int, phrase: str, cable_in, cable_out, recognizer) -> float
             check(False, str(exc))
         finally:
             proc.kill()  # si no, se escucharía a sí mismo (mismo cable) y volvería a traducir
+    proc.check_clean_console()
     recording = call.audio()
     sf.write(str(OUT / f"3_videollamada_frase{number}.wav"), recording, RATE)
 
