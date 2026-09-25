@@ -96,6 +96,23 @@ def test_microphone_falls_back_to_native_rate_like_wasapi():
     assert abs(_dominant_freq(np.concatenate(frames)[1600:], 16000) - 1000) < 20
 
 
+def test_microphone_for_the_voice_sample_keeps_full_quality():
+    # Para la muestra de voz se abre a la frecuencia nativa (48 kHz) aunque el
+    # dispositivo acepte 16 kHz, y se guarda lo grabado tal cual.
+    d = fake_sounddevice.device
+    fake_sounddevice.configure([d("Micrófono (USB)", inputs=1, rate=48000)])
+    mic = MicrophoneStream(0, keep_recording=True)
+    mic.start()
+    stream = fake_sounddevice.streams[-1]
+    assert (mic.samplerate, stream.samplerate) == (48000, 48000)
+    signal = _tone(9000, 48000, 0.96)  # 9 kHz: no entraría a 16 kHz
+    for block in np.split(signal, 30):
+        stream.feed(block)
+    audio, rate = mic.recording()
+    assert rate == 48000 and len(audio) == len(signal)
+    assert abs(_dominant_freq(audio, 48000) - 9000) < 20
+
+
 def test_microphone_falls_back_to_stereo():
     d = fake_sounddevice.device
     fake_sounddevice.configure([d("Mic USB", inputs=2, rate=48000, rates=[48000], channels=[2])], default_input=0)

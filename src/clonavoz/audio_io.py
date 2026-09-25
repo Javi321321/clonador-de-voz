@@ -92,10 +92,16 @@ class MicStats:
 
 
 class MicrophoneStream:
-    def __init__(self, device: int | None, on_frame=None, frame_size: int = 512) -> None:
+    """`keep_recording=True` (para grabar tu muestra de voz): se abre a la
+    frecuencia nativa del micrófono, con toda su calidad, y guarda lo grabado
+    tal cual (ver `recording`); los bloques de `on_frame` siguen a 16 kHz."""
+
+    def __init__(self, device: int | None, on_frame=None, frame_size: int = 512, keep_recording: bool = False) -> None:
         self.device = device
         self._on_frame = on_frame
         self._frame_size = frame_size
+        self._keep_recording = keep_recording
+        self._recording: list[np.ndarray] = []
         self._stream = None
         self._resampler: StreamResampler | None = None
         self._pending = np.zeros(0, dtype=np.float32)
@@ -118,10 +124,12 @@ class MicrophoneStream:
         index = info["index"]
         native_rate = int(info["default_samplerate"])
         # Primero 16 kHz mono (sin remuestrear); si el dispositivo no lo
-        # acepta, su frecuencia nativa y, por último, estéreo.
+        # acepta, su frecuencia nativa y, por último, estéreo. Para grabar tu
+        # muestra de voz, primero la nativa.
+        rates = [native_rate, SAMPLE_RATE] if self._keep_recording else [SAMPLE_RATE, native_rate]
         attempts = [
             (rate, channels)
-            for rate in dict.fromkeys([SAMPLE_RATE, native_rate])
+            for rate in dict.fromkeys(rates)
             for channels in dict.fromkeys([1, min(2, int(info["max_input_channels"]))])
         ]
         errors = []
@@ -148,7 +156,9 @@ class MicrophoneStream:
                 continue
             self._stream = stream
             self.description = describe_device(index)
-            if rate != SAMPLE_RATE:
+            if self._keep_recording:
+                self.description += f", grabando a {rate} Hz"
+            elif rate != SAMPLE_RATE:
                 self.description += f", abierto a {rate} Hz y remuestreado a {SAMPLE_RATE} Hz"
             return
 
@@ -172,6 +182,8 @@ class MicrophoneStream:
             stats.nonzero_blocks += 1
         stats.max_peak = max(stats.max_peak, peak)
         self._level = max(self._level, peak)
+        if self._keep_recording:
+            self._recording.append(np.array(block, dtype=np.float32))
 
         if self._on_frame is None:
             return
@@ -182,6 +194,11 @@ class MicrophoneStream:
         while len(self._pending) >= size:
             self._on_frame(self._pending[:size].copy())
             self._pending = self._pending[size:]
+
+    def recording(self) -> tuple[np.ndarray, int]:
+        """Todo lo grabado (con `keep_recording`), a la frecuencia a la que se abrió."""
+        audio = np.concatenate(self._recording) if self._recording else np.zeros(0, dtype=np.float32)
+        return audio, self.samplerate or SAMPLE_RATE
 
     def pop_level_db(self) -> float:
         """Nivel pico (dBFS) desde la última llamada; para el medidor."""
