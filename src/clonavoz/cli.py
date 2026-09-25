@@ -104,6 +104,17 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
         download_model(size)
     print("Traductor (NLLB-200)...")
     translate.download()
+    for source in languages:
+        for target in languages:
+            if source.code != target.code:
+                print(f"Traductor rápido Opus-MT ({source.code} -> {target.code})...")
+                try:
+                    available = translate.download_opus(source.code, target.code)
+                except Exception as exc:  # noqa: BLE001 - es opcional: sin él se usa NLLB-200
+                    print(f"  (no se pudo: {exc}. Se usa NLLB-200, más lento)")
+                    continue
+                if not available:
+                    print("  (no existe para ese par: se usa NLLB-200)")
     print("Conversor de timbre (OpenVoice V2)...")
     openvoice.ToneColorConverter.from_pretrained()
     for lang in languages:
@@ -266,7 +277,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    print(f"Reconocimiento de voz: {pipeline.asr_name}")
+    print(f"Reconocimiento de voz: {pipeline.asr_name} | traductor: {pipeline.translator_name}")
     print(f"Micrófono (tu voz): {pipeline.mic.description}")
     print(f"Salida de la traducción: {pipeline.output.description}")
     mic_name = audio_devices.virtual_mic_name(output.name)

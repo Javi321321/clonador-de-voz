@@ -38,6 +38,14 @@ class SpeechRecognizer:
         )
         self.name = f"Whisper {profile.whisper_model}"
 
+    @property
+    def can_split(self) -> bool:
+        """Si da el tiempo de cada palabra (para la traducción simultánea)."""
+        return self._parakeet is not None
+
+    def transcribe_timed(self, audio: np.ndarray) -> tuple[list[str], list[float]]:
+        return self._parakeet.transcribe_timed(audio)
+
     def transcribe(self, audio: np.ndarray, whisper_language: str) -> str:
         if self._parakeet is not None:
             return self._parakeet.transcribe(audio)

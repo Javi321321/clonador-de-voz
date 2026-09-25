@@ -61,9 +61,10 @@ def main() -> None:
     _step(f"reconocimiento ({recognizer.name}): {text!r}", t)
 
     t = time.perf_counter()
-    english = Translator("spa_Latn", "eng_Latn").translate(text)
+    translator = Translator("spa_Latn", "eng_Latn", pair=("es", "en"))
+    english = translator.translate(text)
     assert english, "la traducción salió vacía"
-    _step(f"traducción: {english!r}", t)
+    _step(f"traducción ({translator.name}): {english!r}", t)
 
     t = time.perf_counter()
     synth = VoiceSynthesizer(get_profile("low"), sample, engine="openvoice")

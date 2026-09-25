@@ -143,6 +143,7 @@ class MicrophoneStream:
                     channels=channels,
                     dtype="float32",
                     blocksize=round(self._frame_size * rate / SAMPLE_RATE),
+                    latency="low",  # tu voz llega ~0.1 s antes que con el buffer grande
                     callback=self._callback,
                 )
             except sd.PortAudioError as exc:
@@ -222,7 +223,8 @@ class AudioOutput:
     frecuencia nativa."""
 
     # Antes de empezar a sonar una frase que llega por partes, se junta este
-    # colchón: si una parte se demora un poco, no se corta la voz.
+    # colchón: si una parte se demora un poco, no se corta la voz. En una PC
+    # que genera la voz muy rápido alcanza con menos (ver pipeline._warm_up).
     STREAM_CUSHION_SECONDS = 0.25
 
     def __init__(self, device: int | None, preferred_rate: int | None = None) -> None:
@@ -249,7 +251,11 @@ class AudioOutput:
         for rate in rates:
             for channels in dict.fromkeys([1, min(2, int(info["max_output_channels"]))]):
                 try:
-                    stream = sd.OutputStream(device=index, samplerate=rate, channels=channels, dtype="float32")
+                    # Buffer chico: la traducción suena ~0.1 s antes. Para que no se
+                    # corte, las frases que llegan por partes esperan un colchón.
+                    stream = sd.OutputStream(
+                        device=index, samplerate=rate, channels=channels, dtype="float32", latency="low"
+                    )
                 except sd.PortAudioError as exc:
                     errors.append(f"{rate} Hz, {channels} canal(es): {exc}")
                     continue

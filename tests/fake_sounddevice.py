@@ -71,14 +71,16 @@ def query_hostapis(index=None):
 class _Stream:
     kind = ""
 
-    def __init__(self, device=None, samplerate=None, channels=None, dtype=None, blocksize=None, callback=None):
+    def __init__(
+        self, device=None, samplerate=None, channels=None, dtype=None, blocksize=None, callback=None, latency=None
+    ):
         spec = _devices[device]
         if spec["rates"] is not None and int(samplerate) not in spec["rates"]:
             raise PortAudioError(f"Error opening {self.kind}: Invalid sample rate [PaErrorCode -9997]")
         if spec["channels"] is not None and channels not in spec["channels"]:
             raise PortAudioError(f"Error opening {self.kind}: Invalid number of channels [PaErrorCode -9998]")
         self.device, self.samplerate, self.channels = device, samplerate, channels
-        self.blocksize, self.callback = blocksize, callback
+        self.blocksize, self.callback, self.latency = blocksize, callback, latency
         self.started = self.closed = False
         self.written: list[np.ndarray] = []
         streams.append(self)

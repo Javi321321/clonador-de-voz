@@ -3,6 +3,10 @@
   captura de audio -> VAD -> ASR -> traducción -> TTS clonado -> reproducción
   en el micrófono virtual.
 
+Con Parakeet, la traducción es simultánea: el VAD pregunta a `ClauseSplitter`
+dónde termina cada idea mientras hablás, y esa parte sale traducida sin
+esperar a que termines (ver `simultaneous.py`).
+
 Cada etapa corre en su propio hilo y se comunican por colas, para que una
 frase pueda estar transcribiéndose mientras la anterior todavía se está
 sintetizando: así se aprovecha el tiempo del CPU/GPU y se reduce la
@@ -29,6 +33,8 @@ from .audio_devices import SAMPLE_RATE
 from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream
 from .config import PerformanceProfile
 from .languages import Language, get_language
+from .simultaneous import ClauseSplitter
+from .timestretch import shorten_pauses, speed_up
 from .translate import Translator
 from .vad import StreamingVAD
 from .voice_clone import VoiceSynthesizer
@@ -71,12 +77,20 @@ class LiveVoicePipeline:
         self.stats = PipelineStats()
         self.error: BaseException | None = None
 
-        self._vad = StreamingVAD(max_utterance_seconds=profile.max_utterance_seconds)
         self._asr = SpeechRecognizer(profile, self.source_language.code)
         self.asr_name = self._asr.name
+        # Con Parakeet se traduce en simultáneo: se corta al final de cada idea
+        # mientras seguís hablando (ver simultaneous.py).
+        self.simultaneous = self._asr.can_split
+        splitter = ClauseSplitter(self._asr.transcribe_timed) if self.simultaneous else None
+        self._vad = StreamingVAD(max_utterance_seconds=profile.max_utterance_seconds, splitter=splitter)
         self._translator = Translator(
-            self.source_language.nllb_code, self.target_language.nllb_code, device=profile.device
+            self.source_language.nllb_code,
+            self.target_language.nllb_code,
+            device=profile.device,
+            pair=(self.source_language.code, self.target_language.code),
         )
+        self.translator_name = self._translator.name
         self._synth = VoiceSynthesizer(profile, reference_wav, engine=profile.voice_engine)
         self._synth.preload(self.target_language)
 
@@ -91,6 +105,10 @@ class LiveVoicePipeline:
         self.stream_playback = False
         self._processing = False
         self._playing = False
+        # Segundos de traducción generados que todavía no sonaron: si la
+        # traducción se atrasa, se habla un poco más rápido para alcanzarte.
+        self._backlog = 0.0
+        self._backlog_lock = threading.Lock()
         self._last_error = ""
         self._threads: list[threading.Thread] = []
         self._warm_up()
@@ -102,17 +120,32 @@ class LiveVoicePipeline:
         ejemplo, falta FFmpeg para XTTS), el error se ve ya al arrancar."""
         try:
             self._asr.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), self.source_language.whisper_code)
-            text = self._translator.translate("Hola, ¿cómo estás?")
+            text = self._translator.translate("Hola, ¿cómo estás? Te quería contar algo.")
             self._synth.synthesize(text, self.target_language)
             if self._synth.can_stream(self.target_language):
-                # Ir reproduciendo mientras se genera solo si esta PC genera la voz
-                # bastante más rápido de lo que dura: si no, la voz se cortaría.
-                started = time.perf_counter()
-                audio, sample_rate = self._synth.synthesize(text, self.target_language)
-                speed = (time.perf_counter() - started) / max(0.1, len(audio) / sample_rate)
-                self.stream_playback = speed < 0.6
+                self._choose_stream_playback(text)
         except Exception as exc:  # noqa: BLE001 - se informa igual que el error de una frase
             self._report_phrase_error(exc)
+
+    def _choose_stream_playback(self, text: str) -> None:
+        """Ir reproduciendo la voz mientras se genera ahorra casi todo el tiempo de
+        generarla, pero solo sirve si esta PC la genera bastante más rápido de lo
+        que dura: si no, se cortaría. Se mide el ritmo después del primer pedazo
+        (que siempre tarda un poco más): segundos para generar cada segundo de voz."""
+        chunks, rate = self._synth.stream(text, self.target_language)
+        started, samples = None, 0
+        for chunk in chunks:
+            if started is None:
+                started = time.perf_counter()
+            else:
+                samples += len(chunk)
+        if started is None or samples == 0:
+            return
+        rhythm = (time.perf_counter() - started) / (samples / rate)
+        self.stream_playback = rhythm < 0.75
+        # Mientras hablás, el reconocimiento le quita CPU a la voz: cuanto más
+        # justa viene la PC, más colchón antes de empezar a sonar cada frase.
+        self.output.STREAM_CUSHION_SECONDS = 0.15 if rhythm < 0.4 else 0.3 if rhythm < 0.6 else 0.45
 
     def start(self) -> None:
         """Abre la salida y el micrófono y arranca los hilos. Si un
@@ -158,7 +191,7 @@ class LiveVoicePipeline:
                 if frame is _SENTINEL:
                     return
                 utterance = self._vad.push(frame)
-                if utterance is not None and len(utterance) > 0:
+                if utterance is not None and len(utterance.audio) > 0:
                     self._text_queue.put((utterance, time.time()))
         except Exception as exc:  # noqa: BLE001 - se reporta en la consola vía self.error
             self.error = exc
@@ -171,7 +204,9 @@ class LiveVoicePipeline:
             utterance, start_time = item
             self._processing = True
             try:
-                text_src = self._asr.transcribe(utterance, self.source_language.whisper_code)
+                text_src = utterance.text
+                if text_src is None:
+                    text_src = self._asr.transcribe(utterance.audio, self.source_language.whisper_code)
                 if not text_src:
                     continue
                 text_tgt = self._translator.translate(text_src)
@@ -180,26 +215,73 @@ class LiveVoicePipeline:
                 self.stats.last_transcript = (text_src, text_tgt)
 
                 self.stats.utterances_processed += 1
-                if self.stream_playback:
-                    # La voz se genera en el hilo de reproducción, a medida que suena.
-                    self._audio_out_queue.put(("stream", text_tgt))
-                    continue
-                audio_out, sample_rate = self._synth.synthesize(text_tgt, self.target_language)
+                self._speak(text_tgt)
                 self.stats.last_latency_seconds = time.time() - start_time
-                self._audio_out_queue.put(("audio", audio_out, sample_rate))
             except Exception as exc:  # noqa: BLE001 - una frase con error no debe tumbar el pipeline
                 self._report_phrase_error(exc)
             finally:
                 self._processing = False
 
-    def _play_streamed(self, text: str) -> None:
+    def _queue_audio(self, item: tuple, seconds: float) -> None:
+        with self._backlog_lock:
+            self._backlog += seconds
+        self._audio_out_queue.put(item)
+
+    def _speak(self, text: str) -> None:
+        """Genera la traducción con tu voz y la deja lista para sonar. Se genera
+        acá, adelantada a lo que está sonando, así entre frase y frase no quedan
+        huecos; con la voz natural, de a pedacitos, que empiezan a sonar apenas
+        se generan si no hay nada sonando."""
+        if not self.stream_playback:
+            audio, rate = self._synth.synthesize(text, self.target_language)
+            self._queue_audio(("audio", audio, rate), len(audio) / rate)
+            return
+        chunks, rate = self._synth.stream(text, self.target_language)
+        self._audio_out_queue.put(("stream_start", rate))
         try:
-            chunks, sample_rate = self._synth.stream(text, self.target_language)
-            self.output.play_stream(chunks, sample_rate)
-        except AudioDeviceError:
-            raise  # el dispositivo de salida falló: eso sí detiene todo
-        except Exception as exc:  # noqa: BLE001 - una frase con error no debe tumbar el pipeline
-            self._report_phrase_error(exc)
+            for chunk in chunks:
+                self._queue_audio(("chunk", chunk), len(chunk) / rate)
+        finally:
+            self._audio_out_queue.put(("stream_end",))
+
+    def _catch_up_speed(self, pending: float) -> float:
+        """Si la traducción va atrasada (`pending`: segundos que faltan sonar), un
+        poco más rápido y sin cambiar el tono, como un intérprete que se apura
+        para alcanzarte."""
+        if pending > 3.0:
+            return 1.3
+        if pending > 1.5:
+            return 1.15
+        return 1.0
+
+    def _streamed_chunks(self):
+        while True:
+            item = self._audio_out_queue.get()
+            if item is _SENTINEL:
+                self._audio_out_queue.put(_SENTINEL)  # para que el bucle de reproducción termine
+                return
+            if item[0] == "stream_end":
+                return
+            yield item[1]
+            self._played(len(item[1]) / self._stream_rate)
+
+    def _play_phrase_stream(self, rate: int) -> None:
+        """Una frase que llega por pedacitos. Si la traducción viene atrasada, la
+        frase ya está generada entera (se genera más rápido de lo que suena):
+        se junta y se dice un poco más rápido; si no, suena a medida que llega."""
+        self._stream_rate = rate
+        speed = self._catch_up_speed(self._backlog)
+        if speed == 1.0:
+            self.output.play_stream(self._streamed_chunks(), rate)
+            return
+        chunks = list(self._streamed_chunks())
+        if chunks:
+            audio = np.concatenate(chunks)
+            self.output.play(speed_up(shorten_pauses(audio, rate), rate, speed), rate)
+
+    def _played(self, seconds: float) -> None:
+        with self._backlog_lock:
+            self._backlog = max(0.0, self._backlog - seconds)
 
     def _report_phrase_error(self, exc: Exception) -> None:
         text = str(exc)
@@ -224,10 +306,13 @@ class LiveVoicePipeline:
                     return
                 self._playing = True
                 try:
-                    if item[0] == "stream":
-                        self._play_streamed(item[1])
-                    else:
-                        self.output.play(item[1], item[2])
+                    if item[0] == "stream_start":
+                        self._play_phrase_stream(item[1])
+                    elif item[0] == "audio":
+                        audio, rate = item[1], item[2]
+                        speed = self._catch_up_speed(self._backlog)
+                        self.output.play(speed_up(shorten_pauses(audio, rate), rate, speed), rate)
+                        self._played(len(audio) / rate)
                 finally:
                     self._playing = False
         except Exception as exc:  # noqa: BLE001 - se reporta en la consola vía self.error

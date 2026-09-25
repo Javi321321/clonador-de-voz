@@ -74,6 +74,13 @@ class ParakeetRecognizer:
         self._model = onnx_asr.load_model(
             "nemo-parakeet-tdt-0.6b-v3", path=_snapshot(local_only=True), quantization="int8", sess_options=options
         )
+        self._timed = self._model.with_timestamps()
 
     def transcribe(self, audio: np.ndarray) -> str:
         return str(self._model.recognize(np.asarray(audio, dtype=np.float32), sample_rate=16000)).strip()
+
+    def transcribe_timed(self, audio: np.ndarray) -> tuple[list[str], list[float]]:
+        """Los pedazos de texto reconocidos (las palabras empiezan con espacio;
+        comas y puntos van aparte) y en qué segundo empieza cada uno."""
+        result = self._timed.recognize(np.asarray(audio, dtype=np.float32), sample_rate=16000)
+        return list(result.tokens or []), [float(t) for t in (result.timestamps or [])]

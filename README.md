@@ -13,13 +13,15 @@ Este proyecto corre modelos de IA (reconocimiento de voz, traducción y síntesi
 clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias importantes:
 
 1. **La traducción no puede salir en el mismo instante en que hablás.** Ningún
-   traductor (ni una persona intérprete) puede: para traducir una frase hay que
+   traductor (ni una persona intérprete) puede: para traducir una idea hay que
    escucharla primero, y los idiomas ordenan las palabras distinto (el verbo, por
    ejemplo, puede ir al final). Los intérpretes profesionales van 2-3 segundos atrás.
-   clonavoz traduce cada frase apenas hacés una pausa: en nuestras pruebas, sin GPU,
-   la traducción terminó de sonar **unos 4 segundos** después de que terminaste de
-   hablar, tanto con 4 núcleos como con 2 (una computadora modesta). En frases largas,
-   la primera parte ya empieza a sonar mientras seguís hablando.
+   clonavoz trabaja como un intérprete simultáneo: traduce cada idea apenas la cerrás
+   (una coma, un punto), sin esperar a que termines de hablar. En nuestras pruebas, sin
+   GPU, cada frase empezó a sonar traducida **alrededor de 1 segundo** después de
+   terminar de decirla (las largas, mientras seguías hablando), y la traducción terminó
+   **unos 3 a 4 segundos** después de que terminaste
+   ([detalles](#traducción-simultánea-la-menor-demora-posible)).
 2. **Tu voz clonada suena más natural en 7 idiomas y funciona en ~37.** La *voz natural*
    (inglés, español, francés, alemán, portugués, italiano y neerlandés) genera cada frase
    directamente con tu voz y es la que más se parece a vos; hay que descargarla una vez
@@ -36,7 +38,7 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
 ## Cómo funciona
 
 ```
-tu micrófono → VAD (detecta pausas) → Parakeet o Whisper (ASR) → NLLB-200 (traducción)
+tu micrófono → VAD (detecta pausas) → Parakeet o Whisper (ASR) → Opus-MT o NLLB-200 (traducción)
    → Pocket TTS generando la frase con tu voz            ← voz natural (si está descargada)
      o Piper (voz rápida) + OpenVoice (le pone tu timbre) ← voz liviana
      o XTTS-v2 clonando tu voz                            ← opcional, con GPU NVIDIA
@@ -62,6 +64,42 @@ app de videollamada por separado, clonavoz escribe el audio traducido en un disp
 de audio virtual a nivel de sistema operativo. Cualquier app que pueda elegir un
 micrófono (Zoom, Meet, Teams, Discord, Skype, lo que sea) puede usarlo como entrada —
 por eso funciona con **todo lo que exista**, sin plugins específicos por app.
+
+## Traducción simultánea: la menor demora posible
+
+Con Parakeet (los 25 idiomas europeos que entiende, en PCs con al menos 6 GB de RAM),
+clonavoz trabaja como un intérprete simultáneo:
+
+- **No espera a que termines de hablar.** Mientras hablás, va reconociendo lo que llevás
+  dicho y, apenas cerrás una idea (una coma, un punto), la traduce y la dice con tu voz
+  mientras seguís hablando. Si hablás de corrido sin cerrar ninguna idea, corta entre dos
+  palabras a los ~4 segundos.
+- **Al terminar una oración no espera toda la pausa**: si terminó en punto o signo de
+  pregunta, sale apenas hacés un silencio de un cuarto de segundo.
+- **Traductor rápido**: para los pares de idiomas que lo tienen (español ↔ inglés y
+  muchos más) se usa Opus-MT, que traduce cada parte en ~0.1 s (NLLB-200 tarda ~0.5 s).
+- **Tu voz empieza a sonar mientras se genera**, y la parte siguiente se prepara mientras
+  suena la anterior, así no quedan huecos.
+- **Si la traducción se atrasa, se apura**: como un intérprete, habla un poco más rápido
+  (hasta 1.3 veces, sin cambiar el tono de tu voz) y acorta las pausas hasta alcanzarte.
+- El micrófono y la salida usan buffers de audio chicos: ~0.1 s menos en cada uno.
+
+Medido reproduciendo en tiempo real grabaciones reales en español, traducidas al inglés
+con la voz natural, sin GPU:
+
+| | 4 núcleos | 2 núcleos |
+|---|---|---|
+| Conversación (8 frases cortas, 19 s): la primera frase empieza a sonar | 0.9 s después de decirla | 1.0 s |
+| ... y la traducción termina | 3.3 s después de que terminaste | 4.1 s |
+| Hablando de corrido (28 s, casi sin pausas): empieza a sonar | a los 3.4 s, mientras seguís hablando | a los 3.6 s |
+| ... y la traducción termina | 3.1 s después de que terminaste | 3.2 s |
+
+En la misma prueba, antes de estos cambios, la conversación terminaba de sonar 7.5 s
+después y, hablando de corrido, la traducción recién empezaba a sonar a los 9.6 s.
+
+Con Whisper (los idiomas que Parakeet no entiende, o PCs con menos de 6 GB de RAM), cada
+frase se traduce cuando hacés una pausa, pero igual se usan el traductor rápido y el
+apuro para alcanzarte.
 
 ## Instalación de un solo comando
 
@@ -94,9 +132,10 @@ docker compose run --rm clonavoz devices
 En Windows/macOS, Docker Desktop no da acceso confiable al audio en tiempo real del
 host — en esos sistemas usa `setup.ps1`/`setup.sh` en lugar de Docker.
 
-La primera vez se descargan los modelos (Whisper, NLLB-200, el conversor de OpenVoice y
-la voz de Piper de cada idioma que uses; con XTTS-v2, también ese modelo): alrededor de
-1 GB con el motor liviano, varios GB con XTTS-v2. Necesitas internet solo para esa
+La primera vez se descargan los modelos (Parakeet y Whisper, los traductores Opus-MT y
+NLLB-200, el conversor de OpenVoice, la voz de Piper de cada idioma que uses y, si la
+elegís, la voz natural; con XTTS-v2, también ese modelo): unos 2.4 GB, varios GB más con
+XTTS-v2. Necesitas internet solo para esa
 descarga inicial; después, todo funciona sin conexión.
 
 ### Instalación manual (alternativa a los scripts)
@@ -130,13 +169,13 @@ necesita tarjeta gráfica.
 
 **Usarla:** extraé el zip donde quieras (por ejemplo, en el pendrive) y hacé doble clic
 en `Iniciar.bat`. Aparece un menú:
-1. La primera vez: opción **6** para descargar los modelos (~2.2 GB, necesita internet una
+1. La primera vez: opción **6** para descargar los modelos (~2.4 GB, necesita internet una
    sola vez; ahí te pide el token para la [voz natural](#voz-natural-recomendada), o Enter
    para saltearla) y opción **2** para grabar tu voz.
 2. Opción **1** para usarlo en una videollamada (elegí "CABLE Output" como micrófono en la
    app), u opción **4** para escuchar la traducción vos mismo en auriculares.
 
-Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2.2 GB) y al menos
+Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2.4 GB) y al menos
 4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca bastante
 más rápido que desde uno USB 2.0.
 
@@ -316,7 +355,8 @@ Mic [----------------]  -60 dB | reproduciendo
 ```
 
 El micrófono virtual **no se mueve al mismo tiempo que tu voz**: se mueve cuando cada
-frase traducida está lista (`reproduciendo`), unos segundos después de decirla.
+parte traducida está lista (`reproduciendo`), alrededor de un segundo después de decirla
+(en frases largas, mientras seguís hablando).
 
 Para el sentido contrario (que ellos te hablen en otro idioma y tú lo escuches en
 español), corre una segunda instancia con los idiomas invertidos, escuchando el audio
@@ -333,18 +373,20 @@ de salida de la llamada como entrada y reproduciendo hacia tus audífonos.
 (Parakeet, en los idiomas que entiende; en los demás, Whisper.)
 
 `auto` (por defecto) elige el perfil según la RAM, núcleos de CPU y GPU detectados. Con
-el perfil `low`, en nuestras pruebas sin GPU (con 4 y con 2 núcleos) la traducción de una
-frase de 6 segundos terminó de sonar ~4 segundos después de terminar de hablar, usando
-~2 GB de memoria. `medium` reconoce mejor lo que decís (Whisper `small`) a cambio de un
-poco más de demora.
+Parakeet, el perfil casi no cambia la demora (ver
+[Traducción simultánea](#traducción-simultánea-la-menor-demora-posible)). Sin Parakeet,
+`medium` reconoce mejor lo que decís (Whisper `small`) que `low` (Whisper `tiny`), a
+cambio de un poco más de demora.
 
 ## Licencias de los modelos usados
 
 - Parakeet TDT 0.6B v3 (NVIDIA): CC-BY-4.0; se usa la versión ONNX de
   `istupakov/parakeet-tdt-0.6b-v3-onnx` con `onnx-asr` (MIT).
 - Whisper (faster-whisper): MIT.
+- Opus-MT (Universidad de Helsinki, `Helsinki-NLP/opus-mt-*`): Apache-2.0. Se convierte
+  a CTranslate2 al descargarlo.
 - NLLB-200: CC-BY-NC 4.0 (uso no comercial). Se usa una conversión a CTranslate2 del
-  mismo modelo, con la misma licencia.
+  mismo modelo, con la misma licencia; solo para los pares de idiomas sin Opus-MT.
 - OpenVoice V2 (conversor de timbre, incluido en `openvoice.py`): MIT.
 - Piper: MIT. Cada voz tiene su propia licencia: la mayoría de las elegidas son CC0,
   dominio público o CC-BY (permiten uso comercial). Las de turco, japonés, coreano,
@@ -358,11 +400,15 @@ poco más de demora.
   adicional).
 
 Si planeas un uso comercial: con el motor liviano, lo único de uso no comercial es
-NLLB-200 (y las voces de Piper mencionadas); con XTTS-v2, también ese modelo.
+NLLB-200, que solo se usa para los pares de idiomas sin Opus-MT (y las voces de Piper
+mencionadas); con XTTS-v2, también ese modelo.
 
 ## Limitaciones conocidas / roadmap
 
 - No hay interfaz gráfica todavía (solo línea de comandos).
+- Parakeet reconoce solo en qué idioma hablás (no se le puede fijar): en pedazos muy
+  cortos a veces lo confunde (por ejemplo, español con portugués), y ese pedazo sale
+  mal traducido.
 - La voz clonada copia tu voz, pero la entonación de cada frase la pone el modelo: la
   voz natural la toma de cómo hablás en tu muestra, pero no copia la emoción exacta con
   la que dijiste cada frase.

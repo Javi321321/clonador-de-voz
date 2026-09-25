@@ -33,7 +33,7 @@ def run(probabilities, max_utterance_seconds=3.0):
     for _ in probabilities:
         utterance = vad.push(np.zeros(FRAME, dtype=np.float32))
         if utterance is not None:
-            lengths.append(len(utterance) // FRAME)
+            lengths.append(len(utterance.audio) // FRAME)
     return lengths, vad, model
 
 
@@ -60,8 +60,41 @@ def test_a_long_phrase_is_cut_at_a_short_pause_not_mid_word():
     assert 20 <= lengths[1] <= 25
 
 
-def test_without_any_pause_it_still_cuts_eventually():
-    lengths, vad, _ = run([SPEECH] * 400)
-    hard_max_frames = int(np.ceil(3.0 * 2.5 * 16000 / FRAME))
-    assert lengths[0] == hard_max_frames
+def test_without_any_pause_it_cuts_at_the_quietest_moment():
+    # Sin pausas, al llegar al máximo (7.5 s) se corta en el momento más
+    # silencioso del último segundo y medio (entre dos palabras), no ahí mismo.
+    probs = [SPEECH] * 200 + [0.4] + [SPEECH] * 199
+    lengths, vad, _ = run(probs)
+    assert lengths[0] == 201
     assert vad.is_speaking  # y sigue con la frase siguiente
+
+
+def test_the_splitter_cuts_while_speaking_and_its_text_is_kept():
+    calls = []
+
+    def splitter(audio, final):
+        calls.append((len(audio) // FRAME, final))
+        if not final and len(audio) >= 60 * FRAME:
+            return 40 * FRAME, "primera idea,"
+        return None
+
+    model = ScriptedModel([SPEECH] * 100 + [QUIET] * 20)
+    vad = StreamingVAD(max_utterance_seconds=3.0, model=model, splitter=splitter)
+    out = [u for u in (vad.push(np.zeros(FRAME, dtype=np.float32)) for _ in range(120)) if u is not None]
+    assert out[0].text == "primera idea," and len(out[0].audio) == 40 * FRAME
+    assert out[1].text is None  # el resto terminó con la pausa y se reconoce aparte
+    assert calls[0][1] is False  # se le preguntó mientras hablabas, no en la pausa
+
+
+def test_a_finished_sentence_does_not_wait_for_the_whole_pause():
+    def splitter(audio, final):
+        return (len(audio), "Hola, ¿cómo estás?") if final else None
+
+    model = ScriptedModel([SPEECH] * 30 + [QUIET] * 20)
+    vad = StreamingVAD(max_utterance_seconds=3.0, model=model, splitter=splitter)
+    pushed, utterance = 0, None
+    while utterance is None and pushed < 50:
+        utterance = vad.push(np.zeros(FRAME, dtype=np.float32))
+        pushed += 1
+    # a los 250 ms de pausa (8 bloques), no a los 500 ms (16)
+    assert pushed == 30 + 8 and utterance.text == "Hola, ¿cómo estás?"
