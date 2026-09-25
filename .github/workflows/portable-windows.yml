@@ -76,3 +76,47 @@ jobs:
           path: dist/clonavoz-portable-windows-x64.zip
           if-no-files-found: error
           compression-level: 0
+
+  audio:
+    # Prueba con audio de verdad. Estas máquinas no tienen placa de sonido: se
+    # instala VB-CABLE dos veces; un cable hace de "tu micrófono" (la prueba le
+    # habla en español) y el otro de la videollamada (la prueba graba lo que
+    # escucharía Zoom y verifica que sea la traducción en inglés).
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Armar la carpeta portable
+        run: python portable/build_windows.py --out dist
+
+      - name: Encender el audio de Windows e instalar VB-CABLE (dos cables)
+        shell: pwsh
+        run: ./portable/instalar_vbcable_ci.ps1 -Cables 2
+
+      - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
+        shell: cmd
+        run: call dist\clonavoz-portable\clonavoz.bat download-models --languages es en || exit /b 1
+
+      - name: Dispositivos que ve clonavoz
+        shell: cmd
+        run: call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
+
+      - name: Probar con audio real (micrófono y videollamada por VB-CABLE)
+        shell: cmd
+        timeout-minutes: 30
+        env:
+          PYTHONUTF8: "1"
+          PYTHONNOUSERSITE: "1"
+        run: dist\clonavoz-portable\python\python.exe portable\audio_test.py dist\clonavoz-portable "%RUNNER_TEMP%\grabaciones" || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prueba-audio-real-grabaciones
+          path: ${{ runner.temp }}/grabaciones
+          if-no-files-found: warn

@@ -97,6 +97,25 @@ def test_find_virtual_mic_input_prefers_same_hostapi():
     assert find_virtual_mic_input(devices[5]) is None  # parlantes: no es un cable
 
 
+def test_find_virtual_mic_input_picks_the_same_cable_when_there_are_two():
+    # Dos VB-CABLE instalados: Windows llama "2- ..." al segundo, y MME corta
+    # los nombres a 31 letras.
+    d = fake_sounddevice.device
+    fake_sounddevice.configure(
+        [
+            d("CABLE Output (2- VB-Audio Virtu", 0, inputs=8),  # 0
+            d("CABLE Output (VB-Audio Virtual ", 0, inputs=8),  # 1
+            d("CABLE Input (VB-Audio Virtual C", 0, outputs=8),  # 2
+            d("CABLE Input (2- VB-Audio Virtua", 0, outputs=8),  # 3
+            d("CABLE In 16 Ch (2- VB-Audio Vir", 0, outputs=16),  # 4
+        ]
+    )
+    devices = list_devices()
+    assert find_virtual_mic_input(devices[2]).index == 1
+    assert find_virtual_mic_input(devices[3]).index == 0
+    assert find_virtual_mic_input(devices[4]).index == 0
+
+
 def test_is_virtual_mic_input():
     assert is_virtual_mic_input("CABLE Output (VB-Audio Virtual ")
     assert is_virtual_mic_input("BlackHole 2ch")

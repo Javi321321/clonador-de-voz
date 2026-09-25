@@ -118,6 +118,14 @@ def default_output_device() -> AudioDevice | None:
     return list_devices()[index]
 
 
+def _copy_number(name: str) -> int:
+    """Windows numera los dispositivos repetidos: si hay dos cables iguales,
+    el segundo es "CABLE Input (2- VB-Audio Virtual Cable)". Con MME el nombre
+    viene cortado a 31 letras, pero el número está al principio y se conserva."""
+    match = re.search(r"\((\d+)-\s", name)
+    return int(match.group(1)) if match else 1
+
+
 def find_virtual_mic_input(output: AudioDevice) -> AudioDevice | None:
     """La punta de entrada del mismo cable virtual que `output` (ej. "CABLE
     Output" para "CABLE Input"), para comprobar que el audio llega."""
@@ -129,6 +137,8 @@ def find_virtual_mic_input(output: AudioDevice) -> AudioDevice | None:
         for dev in list_devices()
         if dev.max_input_channels > 0 and dev.name.lower().startswith(mic_name.lower())
     ]
+    same_cable = [dev for dev in matches if _copy_number(dev.name) == _copy_number(output.name)]
+    matches = same_cable or matches
     same_hostapi = [dev for dev in matches if dev.hostapi == output.hostapi]
     return (same_hostapi or matches or [None])[0]
 
