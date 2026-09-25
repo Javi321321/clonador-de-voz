@@ -1,26 +1,27 @@
-"""Prueba con audio de verdad en Windows: dos cables virtuales VB-CABLE hacen
-de micrófono y de videollamada. La corre el CI en una máquina de GitHub (que
-no tiene placa de sonido) después de `instalar_vbcable_ci.ps1`:
+"""Prueba con audio de verdad en Windows, con el cable virtual VB-CABLE. La
+corre el CI en una máquina de GitHub, que no tiene placa de sonido, después
+de `instalar_vbcable_ci.ps1`.
 
-    "tu voz" (frases en español dichas por Piper)
-        -> CABLE Input (2- ...)  ==cable 2==>  CABLE Output (2- ...) = tu micrófono
-                                                        |
-                                                  clonavoz run
-                                                        |
-    videollamada (esta prueba graba) <- CABLE Output <==cable 1== CABLE Input
+Como no hay micrófono, la prueba "habla" (frases en español dichas por Piper)
+en la entrada del cable, y clonavoz la escucha por "CABLE Output" igual que a
+un micrófono: es un dispositivo de grabación real de Windows (mismo camino:
+servicio de audio de Windows, permisos de micrófono, MME). La traducción sale
+por ese mismo cable, y la prueba graba "CABLE Output" como lo haría Zoom.
 
-Usa los comandos de la carpeta portable (clonavoz.bat), como el usuario:
-  1. `test-audio`: con el micrófono predeterminado de Windows (que es un cable
-     virtual, sin voz) tiene que avisarlo y diagnosticar el silencio; con "tu
-     micrófono" tiene que dar OK, y sus pitidos tienen que llegar al cable de
-     la videollamada.
-  2. `enroll`: graba tu voz desde el micrófono.
-  3. `run`: traducción en vivo al inglés. Se graba lo que escucha la
-     videollamada, se transcribe, se compara con la traducción y se mide la
-     demora.
+Se usa un solo cable para las dos cosas porque VB-CABLE no se puede instalar
+dos veces. Por eso lo grabado tiene también la frase original, y clonavoz
+escucharía su propia traducción: se analiza solo lo que suena después de la
+frase, y clonavoz se cierra apenas termina de decir la traducción.
 
-Si Windows no permite dos cables independientes, se usa uno solo para las dos
-cosas (y la videollamada escucha también la voz original).
+Con los comandos de la carpeta portable (clonavoz.bat), como el usuario:
+  1. `test-audio` sin elegir micrófono, sin que nadie hable: el micrófono
+     predeterminado de Windows es el cable, así que tiene que avisarlo y
+     diagnosticar el silencio; y sus pitidos tienen que llegar al cable.
+  2. `test-audio` con el micrófono mientras se habla: tiene que dar OK.
+  3. `enroll`: graba tu voz desde el micrófono.
+  4. `run`: traducción en vivo de español a inglés, una vez por frase. Se
+     transcribe lo que llega a la "videollamada", se compara con la
+     traducción y se mide la demora.
 
 Uso: python audio_test.py <carpeta clonavoz-portable> <carpeta para las grabaciones>
 """
@@ -52,7 +53,7 @@ from clonavoz.asr import SpeechRecognizer  # noqa: E402  (carga torch antes que 
 from clonavoz.config import get_profile  # noqa: E402
 from clonavoz.piper_tts import PiperSynthesizer  # noqa: E402
 
-RATE = 16000  # a esta frecuencia se graba el lado de la videollamada
+RATE = 16000  # a esta frecuencia se graba lo que escucha la "videollamada"
 ENROLL_TEXT = (
     "Hola, esta es una muestra de mi voz para el traductor. Hoy hace un día muy lindo, "
     "así que voy a salir a caminar un rato por el parque con mis amigos."
@@ -181,6 +182,10 @@ class Clonavoz:
     def output(self) -> str:
         return "\n".join(line for _, line in self.lines)
 
+    def texts(self, pattern: str, since: float) -> list[str]:
+        """El texto de las líneas como "  es > ..." (según `pattern`) desde `since`."""
+        return [line.split(">", 1)[1].strip() for t, line in self.lines if t >= since and re.match(pattern, line)]
+
     def wait(self, timeout: float) -> int:
         try:
             code = self._proc.wait(timeout=timeout)
@@ -204,9 +209,6 @@ class Clonavoz:
                 raise AssertionError(f"clonavoz no mostró {pattern!r} en {timeout:.0f} s")
             time.sleep(0.1)
 
-    def finished(self) -> bool:
-        return self._proc.poll() is not None
-
     def kill(self) -> None:
         if self._proc.poll() is None:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(self._proc.pid)], capture_output=True)
@@ -214,9 +216,11 @@ class Clonavoz:
         self._reader.join(timeout=5)
 
 
-def sound_span(audio: np.ndarray, since: float, threshold_db: float = -40.0) -> tuple[float, float, bool] | None:
+def sound_span(
+    audio: np.ndarray, since: float, threshold_db: float = -40.0, silence: float = 0.8
+) -> tuple[float, float, bool] | None:
     """Primer tramo con sonido desde `since` (segundos): (comienzo, fin, terminó).
-    Terminó = ya hubo 1.5 s de silencio después."""
+    Terminó = después hubo `silence` segundos sin sonido."""
     hop = RATE // 50  # tramos de 20 ms
     n = len(audio) // hop
     if n == 0:
@@ -230,22 +234,9 @@ def sound_span(audio: np.ndarray, since: float, threshold_db: float = -40.0) -> 
     for i in range(onset, n):
         if loud[i]:
             last = i
-        elif i - last >= 75:
+        elif i - last >= silence * 50:
             return onset / 50, (last + 1) / 50, True
     return onset / 50, (last + 1) / 50, False
-
-
-def find_cables() -> list[tuple[audio_devices.AudioDevice, audio_devices.AudioDevice]]:
-    """(punta donde se reproduce, punta que se graba) de cada cable, por MME
-    (lo que elige clonavoz por defecto)."""
-    mme = next(i for i, api in enumerate(sd.query_hostapis()) if api["name"] == "MME")
-    pairs = []
-    for dev in audio_devices.list_devices():
-        if dev.hostapi == mme and dev.max_output_channels > 0 and dev.name.lower().startswith("cable input"):
-            recording_end = audio_devices.find_virtual_mic_input(dev)
-            if recording_end is not None:
-                pairs.append((dev, recording_end))
-    return pairs
 
 
 def tone_level(audio: np.ndarray, freq: float) -> float:
@@ -257,198 +248,141 @@ def tone_level(audio: np.ndarray, freq: float) -> float:
     return float(spectrum[np.abs(freqs - freq) < 15].max())
 
 
-def check_cables(pairs) -> list[tuple[bool, bool]]:
-    """Pone un tono distinto en cada cable a la vez y se fija qué llega a cada
-    punta. Devuelve, por cable: (le llega su tono, no le llega el del otro)."""
-    freqs = [500.0, 1200.0][: len(pairs)]
-    recorders = [Recorder(rec.index) for _, rec in pairs]
-    for recorder in recorders:
-        recorder.__enter__()
-    try:
+def step_cable(cable_in, cable_out) -> bool:
+    print("\n== 0) ¿El cable pasa el audio? ==", flush=True)
+    with Recorder(cable_out.index) as recorder:
         time.sleep(0.3)
-        players = [
-            threading.Thread(target=play, args=(out.index, 0.3 * np.sin(2 * np.pi * f * np.arange(RATE * 2) / RATE), RATE))
-            for (out, _), f in zip(pairs, freqs, strict=True)
-        ]
-        for p in players:
-            p.start()
-        for p in players:
-            p.join()
+        play(cable_in.index, 0.3 * np.sin(2 * np.pi * 500 * np.arange(2 * RATE) / RATE), RATE)
         time.sleep(0.3)
-    finally:
-        for recorder in recorders:
-            recorder.__exit__()
-    result = []
-    for (out, rec), recorder, freq in zip(pairs, recorders, freqs, strict=True):
-        audio = recorder.audio()
-        own = tone_level(audio, freq)
-        other = max((tone_level(audio, f) for f in freqs if f != freq), default=0.0)
-        peak = float(np.abs(audio).max()) if len(audio) else 0.0
-        print(
-            f"  {out.name} -> {rec.name}: pico {db(peak):.0f} dB, su tono {db(own):.0f} dB, "
-            f"el del otro cable {db(other):.0f} dB"
-        )
-        if len(audio) and not np.any(audio):
-            print("    (llega silencio absoluto: ¿Windows bloquea el acceso al micrófono?)")
-        result.append((own > 0.01, other < own / 10))
-    return result
+    audio = recorder.audio()
+    level = tone_level(audio, 500)
+    if len(audio) and not np.any(audio):
+        print("  (llega silencio absoluto: ¿Windows bloquea el acceso al micrófono?)")
+    return check(level > 0.01, f"un tono puesto en la entrada llega a la salida ({db(level):.0f} dB)")
 
 
-def step_wrong_microphone() -> None:
-    print("\n== 1a) test-audio con el micrófono predeterminado (el cable, donde nadie habla) ==", flush=True)
-    proc = Clonavoz("test-audio", "--skip-output", "--seconds", "4")
+def step_default_microphone(cable_out) -> None:
+    print("\n== 1) test-audio sin elegir micrófono y sin que nadie hable ==", flush=True)
+    proc = Clonavoz("test-audio", "--seconds", "4")
     code = proc.wait(timeout=180)
-    check("micrófono virtual" in proc.output, "avisa que el micrófono predeterminado es el cable virtual")
-    check(code == 1 and "PROBLEMA" in proc.output, "diagnostica que no llega voz (y termina con error)")
-
-
-def step_test_audio(mic_in, mic_rec, call_rec, voice, voice_rate) -> None:
-    print("\n== 1b) test-audio con \"tu micrófono\" mientras hablás ==", flush=True)
-    with Talker(mic_in.index, voice, voice_rate):
-        proc = Clonavoz("test-audio", "--input-device", mic_rec.index, "--seconds", "6")
-        code = proc.wait(timeout=180)
-    check(code == 0, "test-audio termina sin problemas")
-    check("OK: clonavoz escucha bien tu micrófono" in proc.output, "el medidor escucha tu voz")
+    check("micrófono virtual" in proc.output, "avisa que el micrófono predeterminado de Windows es el cable virtual")
+    check("PROBLEMA" in proc.output, "diagnostica que de ese micrófono no llega voz")
     check(
-        re.search(rf"OK: los pitidos llegaron a \[{call_rec.index}\]", proc.output) is not None,
-        f"los pitidos llegan a la videollamada ([{call_rec.index}] {call_rec.name})",
+        re.search(rf"OK: los pitidos llegaron a \[{cable_out.index}\]", proc.output) is not None,
+        "los pitidos llegan al micrófono virtual (lo que escucha la videollamada)",
     )
+    check(code == 1, "termina con error, por el micrófono")
 
 
-def step_enroll(mic_in, mic_rec, voice, voice_rate, recognizer) -> None:
-    print("\n== 2) enroll: grabar tu voz desde el micrófono ==", flush=True)
+def step_microphone_with_voice(cable_in, cable_out, voice, voice_rate) -> None:
+    print("\n== 2) test-audio con el micrófono mientras hablás ==", flush=True)
+    with Talker(cable_in.index, voice, voice_rate):
+        proc = Clonavoz("test-audio", "--input-device", cable_out.index, "--skip-output", "--seconds", "6")
+        code = proc.wait(timeout=180)
+    check("OK: clonavoz escucha bien tu micrófono" in proc.output, "el medidor escucha tu voz y detecta que es voz")
+    check(code == 0, "test-audio termina sin problemas")
+
+
+def step_enroll(cable_in, cable_out, voice, voice_rate, recognizer) -> None:
+    print("\n== 3) enroll: grabar tu voz desde el micrófono ==", flush=True)
     sample = ROOT / "datos" / "mi_voz.wav"
-    with Talker(mic_in.index, voice, voice_rate):
-        proc = Clonavoz("enroll", "--input-device", mic_rec.index, "--seconds", "12")
+    with Talker(cable_in.index, voice, voice_rate):
+        proc = Clonavoz("enroll", "--input-device", cable_out.index, "--seconds", "12")
         code = proc.wait(timeout=180)
     if not check(code == 0 and sample.exists(), "enroll guardó la muestra de voz"):
         return
+    shutil.copy2(sample, OUT / "2_muestra_grabada_con_enroll.wav")
     audio, rate = sf.read(str(sample), dtype="float32")
     seconds, peak = len(audio) / rate, float(np.abs(audio).max())
     check(seconds >= 11 and db(peak) > -30, f"la muestra dura {seconds:.1f} s y su pico es {db(peak):.0f} dB")
     heard = recognizer.transcribe(to_16k(audio, rate), "es")
     match = overlap(ENROLL_TEXT, heard)
     check(match >= 0.5, f"en la muestra se entiende lo que se dijo ({match:.0%}): {heard!r}")
-    shutil.copy2(sample, OUT / "2_muestra_grabada_con_enroll.wav")
 
 
-def step_run(mic_in, mic_rec, call_in, call_rec, same_cable: bool, recognizer) -> None:
-    print("\n== 3) run: traducción en vivo de español a inglés ==", flush=True)
-    base = PiperSynthesizer(speaker_pitch_hz=110)
-    phrases = PHRASES[:1] if same_cable else PHRASES
-    results = []
-    with Recorder(call_rec.index) as call:
-        proc = Clonavoz("run", "--source-lang", "es", "--target-lang", "en", "--input-device", mic_rec.index)
+def step_run(number: int, phrase: str, cable_in, cable_out, recognizer) -> float | None:
+    """Traduce una frase en vivo. Devuelve la demora (s) o None si no salió."""
+    print(f"\n== 4.{number}) run: traducción en vivo de {phrase!r} ==", flush=True)
+    audio, rate = PiperSynthesizer(speaker_pitch_hz=110).synthesize(phrase, "es")
+    sf.write(str(OUT / f"1_tu_voz_frase{number}.wav"), audio, rate)
+    span = None
+    start = end = time.monotonic()
+    with Recorder(cable_out.index) as call:
+        proc = Clonavoz("run", "--source-lang", "es", "--target-lang", "en", "--input-device", cable_out.index)
         try:
             proc.wait_for("Escuchando", timeout=900)
-            check(
-                re.search(rf"Salida de la traducción: \[{call_in.index}\]", proc.output) is not None,
-                f"la traducción sale por [{call_in.index}] {call_in.name} (elegido solo)",
-            )
+            if number == 1:
+                check(
+                    re.search(rf"Salida de la traducción: \[{cable_in.index}\]", proc.output) is not None,
+                    f"elige solo el cable para la traducción ([{cable_in.index}] {cable_in.name})",
+                )
             time.sleep(2)
-            for phrase in phrases:
-                if proc.finished():
-                    check(False, "clonavoz run se cerró solo")
+            start = time.monotonic()
+            play(cable_in.index, audio, rate)
+            end = time.monotonic()
+            proc.wait_for(r"^\s*en > ", timeout=120, after=start)
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                span = sound_span(call.audio(), call.seconds(end) + 0.3)
+                if span and span[2]:
                     break
-                audio, rate = base.synthesize(phrase, "es")
-                start = time.monotonic()
-                play(mic_in.index, audio, rate)
-                end = time.monotonic()
-                try:
-                    proc.wait_for(r"^\s*en > ", timeout=120, after=start)
-                except AssertionError as exc:
-                    check(False, str(exc))
-                deadline = time.monotonic() + 60
-                span = None
-                while time.monotonic() < deadline:
-                    span = sound_span(call.audio(), call.seconds(end) + (0.3 if same_cable else 0.0))
-                    if span and span[2]:
-                        break
-                    time.sleep(0.2)
-                if not same_cable:
-                    time.sleep(1.5)  # por si la frase salió en dos partes
-                results.append((phrase, audio, rate, start, end, span, time.monotonic()))
+                time.sleep(0.1)
+        except AssertionError as exc:
+            check(False, str(exc))
         finally:
-            proc.kill()
+            proc.kill()  # si no, se escucharía a sí mismo (mismo cable) y volvería a traducir
     recording = call.audio()
-    sf.write(str(OUT / "3_lo_que_escucha_la_videollamada.wav"), recording, RATE)
-    sf.write(
-        str(OUT / "1_tu_voz_frases.wav"),
-        np.concatenate([np.concatenate([to_16k(a, r), np.zeros(RATE, np.float32)]) for _, a, r, *_ in results]),
-        RATE,
-    )
+    sf.write(str(OUT / f"3_videollamada_frase{number}.wav"), recording, RATE)
 
-    for i, (phrase, _audio, _rate, start, end, span, until) in enumerate(results, 1):
-        print(f"\n  Frase {i}: {phrase!r}")
-        said = [line.split(">", 1)[1].strip() for t, line in proc.lines if start <= t <= until and re.match(r"^\s*es > ", line)]
-        translated = [line.split(">", 1)[1].strip() for t, line in proc.lines if start <= t <= until and re.match(r"^\s*en > ", line)]
-        if same_cable:  # después se escucharía a sí mismo: solo cuenta la primera
-            said, translated = said[:1], translated[:1]
-        said_text, translated_text = " ".join(said), " ".join(translated)
-        check(overlap(phrase, said_text) >= 0.5, f"clonavoz entendió del micrófono: {said_text!r}")
-        if not check(span is not None, "la traducción llegó a la videollamada"):
-            continue
-        onset, finish, _ = span
-        delay = onset - call.seconds(end)
-        piece = recording[max(0, int(onset * RATE) - RATE // 5) : int(finish * RATE) + RATE // 5]
-        heard = recognizer.transcribe(piece, "en")
-        match = overlap(translated_text, heard)
-        print(f"  Traducción de clonavoz: {translated_text!r}")
-        print(f"  Lo que se escucha en la videollamada: {heard!r} (pico {db(float(np.abs(piece).max())):.0f} dB)")
-        check(match >= 0.5, f"en la videollamada se entiende la traducción ({match:.0%} de las palabras)")
-        print(f"  Demora: {delay:.1f} s desde que terminaste la frase hasta que empezó a sonar la traducción")
-        if i == 1 and not same_cable:
-            before = recording[: max(0, int(onset * RATE) - RATE // 10)]
-            check(
-                len(before) > 0 and db(float(np.abs(before).max())) < -50,
-                "la videollamada no escucha tu voz original, solo la traducción",
-            )
+    said = proc.texts(r"^\s*es > ", start)[:1]
+    translated = proc.texts(r"^\s*en > ", start)[:1]
+    check(bool(said) and overlap(phrase, said[0]) >= 0.5, f"entendió del micrófono: {said}")
+    if not check(span is not None, "la traducción llegó a la videollamada"):
+        return None
+    onset, finish, _ = span
+    piece = recording[max(0, int(onset * RATE) - RATE // 5) : int(finish * RATE) + RATE // 5]
+    sf.write(str(OUT / f"3_videollamada_frase{number}_solo_traduccion.wav"), piece, RATE)
+    heard = recognizer.transcribe(piece, "en")
+    match = overlap(" ".join(translated), heard)
+    print(f"  Traducción de clonavoz: {translated}")
+    print(f"  Lo que se escucha en la videollamada: {heard!r} (pico {db(float(np.abs(piece).max())):.0f} dB)")
+    check(match >= 0.5, f"en la videollamada se entiende la traducción ({match:.0%} de las palabras)")
+    delay = onset - call.seconds(end)
+    print(f"  Demora: {delay:.1f} s desde que terminaste la frase hasta que empezó a sonar la traducción")
+    return delay
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"PortAudio: {sd.get_portaudio_version()[1]}")
-    pairs = find_cables()
-    for out, rec in pairs:
-        print(f"Cable: [{out.index}] {out.name}  ->  [{rec.index}] {rec.name}")
-    if not pairs:
+    cable_in = audio_devices.find_virtual_output_device()  # donde clonavoz reproduce, elegido solo
+    cable_out = audio_devices.find_virtual_mic_input(cable_in) if cable_in else None
+    if cable_in is None or cable_out is None:
         audio_devices.print_devices()
-        sys.exit("No se encontró ningún VB-CABLE por MME.")
-
-    print("\n== 0) ¿Los cables pasan el audio, y cada uno por separado? ==", flush=True)
-    results = check_cables(pairs)
-    working = [pair for pair, (arrives, _) in zip(pairs, results, strict=True) if arrives]
-    independent = [pair for pair, (arrives, clean) in zip(pairs, results, strict=True) if arrives and clean]
-    auto = audio_devices.find_virtual_output_device()  # la salida que clonavoz elige sola
-    auto_index = auto.index if auto is not None else None
-    if not working:
-        sys.exit("El audio no pasa por ningún cable: no se puede seguir.")
-    same_cable = len(independent) < 2
-    candidates = working if same_cable else independent
-    call = next((p for p in candidates if p[0].index == auto_index), candidates[0])
-    mic = call if same_cable else next(p for p in candidates if p is not call)
-    if same_cable:
-        print("  No hay dos cables independientes: uno solo hace de micrófono y de videollamada a la vez.")
-    (mic_in, mic_rec), (call_in, call_rec) = mic, call
-    print(f"  Tu micrófono: [{mic_rec.index}] {mic_rec.name} (la prueba habla en [{mic_in.index}] {mic_in.name})")
-    print(f"  Videollamada: [{call_rec.index}] {call_rec.name} (clonavoz reproduce en [{call_in.index}] {call_in.name})")
+        sys.exit("No se encontró VB-CABLE.")
+    print(f"Entrada del cable: {audio_devices.describe_device(cable_in.index)}")
+    print(f"Salida del cable (el \"micrófono\"): {audio_devices.describe_device(cable_out.index)}")
+    if not step_cable(cable_in, cable_out):
+        sys.exit("El audio no pasa por el cable: no se puede seguir.")
 
     voice, voice_rate = PiperSynthesizer(speaker_pitch_hz=110).synthesize(ENROLL_TEXT, "es")
     recognizer = SpeechRecognizer(get_profile("medium"))  # Whisper "small", para verificar
-
     steps = [
-        lambda: step_wrong_microphone(),
-        lambda: step_test_audio(mic_in, mic_rec, call_rec, voice, voice_rate),
-        lambda: step_enroll(mic_in, mic_rec, voice, voice_rate, recognizer),
-        lambda: step_run(mic_in, mic_rec, call_in, call_rec, same_cable, recognizer),
+        lambda: step_default_microphone(cable_out),
+        lambda: step_microphone_with_voice(cable_in, cable_out, voice, voice_rate),
+        lambda: step_enroll(cable_in, cable_out, voice, voice_rate, recognizer),
     ]
     for step in steps:
         try:
             step()
         except AssertionError as exc:  # un paso trabado no impide probar los demás
             check(False, str(exc))
+    delays = [step_run(i, phrase, cable_in, cable_out, recognizer) for i, phrase in enumerate(PHRASES, 1)]
 
     print()
+    measured = [d for d in delays if d is not None]
+    if measured:
+        print("Demora de cada frase: " + ", ".join(f"{d:.1f} s" for d in measured))
     if FAILURES:
         print(f"FALLARON {len(FAILURES)} verificaciones:")
         for failure in FAILURES:

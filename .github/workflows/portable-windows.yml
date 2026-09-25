@@ -79,9 +79,9 @@ jobs:
 
   audio:
     # Prueba con audio de verdad. Estas máquinas no tienen placa de sonido: se
-    # instala VB-CABLE dos veces; un cable hace de "tu micrófono" (la prueba le
-    # habla en español) y el otro de la videollamada (la prueba graba lo que
-    # escucharía Zoom y verifica que sea la traducción en inglés).
+    # instala VB-CABLE, la prueba le "habla" en español como si fuera tu
+    # micrófono y graba lo que escucharía Zoom, para verificar que llega la
+    # traducción en inglés (ver portable/audio_test.py).
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -94,9 +94,9 @@ jobs:
       - name: Armar la carpeta portable
         run: python portable/build_windows.py --out dist
 
-      - name: Encender el audio de Windows e instalar VB-CABLE (dos cables)
+      - name: Encender el audio de Windows e instalar VB-CABLE
         shell: pwsh
-        run: ./portable/instalar_vbcable_ci.ps1 -Cables 2
+        run: ./portable/instalar_vbcable_ci.ps1
 
       - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
         shell: cmd
@@ -106,7 +106,7 @@ jobs:
         shell: cmd
         run: call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
 
-      - name: Probar con audio real (micrófono y videollamada por VB-CABLE)
+      - name: Probar con audio real por VB-CABLE (micrófono, test-audio, enroll y run)
         shell: cmd
         timeout-minutes: 30
         env:

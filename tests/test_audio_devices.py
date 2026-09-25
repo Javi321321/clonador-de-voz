@@ -97,6 +97,31 @@ def test_find_virtual_mic_input_prefers_same_hostapi():
     assert find_virtual_mic_input(devices[5]) is None  # parlantes: no es un cable
 
 
+def test_vb_cable_input_with_the_generic_speakers_name(monkeypatch):
+    # Así aparece VB-CABLE en un Windows real de GitHub Actions (y en algunas
+    # PCs): la entrada se llama "Speakers"/"Altavoces (VB-Audio Virtual Cable)"
+    # en vez de "CABLE Input". Tiene que elegirse igual, antes que la de 16 canales.
+    monkeypatch.setattr(audio_devices.platform, "system", lambda: "Windows")
+    d = fake_sounddevice.device
+    for speakers in ("Speakers (VB-Audio Virtual Cabl", "Altavoces (VB-Audio Virtual Ca"):
+        fake_sounddevice.configure(
+            [
+                d("Microsoft Sound Mapper - Input", 0, inputs=2),  # 0
+                d("CABLE Output (VB-Audio Virtual ", 0, inputs=8),  # 1
+                d("Microsoft Sound Mapper - Output", 0, outputs=2),  # 2
+                d("CABLE In 16 Ch (VB-Audio Virtua", 0, outputs=16),  # 3
+                d(speakers, 0, outputs=8),  # 4
+            ],
+            default_input=1,
+            default_output=4,
+        )
+        output = find_virtual_output_device()
+        assert output.index == 4
+        assert virtual_mic_name(output.name) == "CABLE Output"
+        assert find_virtual_mic_input(output).index == 1
+    assert is_virtual_mic_input("Microphone (VB-Audio Virtual Cable)")
+
+
 def test_find_virtual_mic_input_picks_the_same_cable_when_there_are_two():
     # Dos VB-CABLE instalados: Windows llama "2- ..." al segundo, y MME corta
     # los nombres a 31 letras.

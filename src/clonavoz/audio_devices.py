@@ -21,9 +21,11 @@ import sounddevice as sd
 SAMPLE_RATE = 16000
 
 # Punta de salida del cable virtual (donde clonavoz escribe), en orden de
-# preferencia: si hay VB-CABLE y además Voicemeeter, se prefiere el cable.
+# preferencia: si hay VB-CABLE y además Voicemeeter, se prefiere el cable. La
+# entrada de VB-CABLE a veces aparece con el nombre genérico de Windows,
+# "Speakers (VB-Audio Virtual Cable)" o "Altavoces (...)", en vez de "CABLE Input".
 _VIRTUAL_DEVICE_HINTS = {
-    "Windows": ["cable input", "cable in ", "vb-audio", "voicemeeter"],
+    "Windows": ["cable input", "vb-audio virtual", "cable in ", "vb-audio", "voicemeeter"],
     "Darwin": ["blackhole"],
     "Linux": ["clonavoz", "null sink"],
 }
@@ -31,7 +33,7 @@ _VIRTUAL_DEVICE_HINTS = {
 # Punta de entrada de los cables virtuales (lo que usa la app de videollamada
 # como micrófono). "CABLE Output" de VB-CABLE se detecta aparte (ver
 # `is_virtual_mic_input`) porque también existen "CABLE-A Output", etc.
-_VIRTUAL_INPUT_HINTS = ("blackhole", "soundflower", "clonavoz", "monitor of")
+_VIRTUAL_INPUT_HINTS = ("blackhole", "soundflower", "clonavoz", "monitor of", "vb-audio")
 
 # Entradas que no son un micrófono real: el "mapeador" de Windows (que apunta
 # al predeterminado, o sea al propio cable virtual; su nombre cambia según el
@@ -90,6 +92,8 @@ def virtual_mic_name(output_device_name: str) -> str | None:
     if lowered.startswith("cable"):
         # VB-CABLE: "CABLE Input" / "CABLE In 16ch" -> "CABLE Output".
         return re.sub(r"\s*in(put)?\b.*$", " Output", base, flags=re.IGNORECASE)
+    if "vb-audio virtual" in output_device_name.lower():
+        return "CABLE Output"  # "Speakers (VB-Audio Virtual Cable)" es la entrada de VB-CABLE
     if "blackhole" in lowered:
         return base
     if "clonavoz" in lowered:
@@ -101,7 +105,11 @@ def find_virtual_output_device() -> AudioDevice | None:
     """Busca por nombre un dispositivo de salida que sea un micrófono
     virtual ya instalado, para usarlo como salida del audio traducido."""
     hints = _VIRTUAL_DEVICE_HINTS.get(platform.system(), [])
-    outputs = [dev for dev in list_devices() if dev.max_output_channels > 0]
+    # La variante de 16 canales de VB-CABLE ("CABLE In 16 Ch") solo si no hay otra.
+    outputs = sorted(
+        (dev for dev in list_devices() if dev.max_output_channels > 0),
+        key=lambda dev: "16 ch" in dev.name.lower(),
+    )
     for hint in hints:
         for dev in outputs:
             if hint in dev.name.lower():
@@ -132,10 +140,16 @@ def find_virtual_mic_input(output: AudioDevice) -> AudioDevice | None:
     mic_name = virtual_mic_name(output.name)
     if mic_name is None:
         return None
+    wanted = mic_name.lower()
     matches = [
         dev
         for dev in list_devices()
-        if dev.max_input_channels > 0 and dev.name.lower().startswith(mic_name.lower())
+        if dev.max_input_channels > 0
+        and (
+            dev.name.lower().startswith(wanted)
+            # por si Windows también le dio un nombre genérico ("Microphone (VB-Audio ...)")
+            or (wanted == "cable output" and "vb-audio virtual" in dev.name.lower())
+        )
     ]
     same_cable = [dev for dev in matches if _copy_number(dev.name) == _copy_number(output.name)]
     matches = same_cable or matches

@@ -1,12 +1,11 @@
 # Solo para la prueba automática con audio real en GitHub Actions (ver
 # .github/workflows/portable-windows.yml): esas máquinas Windows no tienen
 # placa de sonido y tienen el audio apagado. Este script lo enciende e instala
-# el cable virtual VB-CABLE oficial, dos veces, para tener dos cables: uno hace
-# de "tu micrófono" y el otro de micrófono de la videollamada.
+# el cable virtual VB-CABLE oficial. (Una segunda copia no sirve: Windows la
+# crea pero no arranca, CM_PROB_FAILED_START.)
 #
 # En tu computadora VB-CABLE se instala con su instalador normal (ver
 # LEEME.txt): clonavoz no lo incluye ni lo instala.
-param([int]$Cables = 2)
 $ErrorActionPreference = "Stop"
 
 Write-Host "== Servicio de audio de Windows =="
@@ -113,25 +112,25 @@ public static class RootDevice {
 }
 "@
 }
-for ($i = 1; $i -le $Cables; $i++) {
-    if ($devcon) {
-        Write-Host "Cable $i con $($devcon.FullName)"
-        & $devcon.FullName install $inf VBAudioVACWDM
-        if ($LASTEXITCODE -gt 1) { throw "devcon install falló (código $LASTEXITCODE)" }
-    } else {
-        Write-Host "Cable $i con SetupAPI (no se encontró devcon)"
-        [RootDevice]::Install($inf, "VBAudioVACWDM")
-    }
+if ($devcon) {
+    Write-Host "Instalando con $($devcon.FullName)"
+    & $devcon.FullName install $inf VBAudioVACWDM
+    if ($LASTEXITCODE -gt 1) { throw "devcon install falló (código $LASTEXITCODE)" }
+} else {
+    Write-Host "Instalando con SetupAPI (no se encontró devcon)"
+    [RootDevice]::Install($inf, "VBAudioVACWDM")
 }
 
 Write-Host "== Dispositivos de audio que ve Windows =="
-# Cada cable tiene 3: "CABLE Input", "CABLE In 16 Ch" y "CABLE Output".
+# Son 3: la entrada ("CABLE Input", aunque acá Windows la llama "Speakers"),
+# "CABLE In 16 Ch" y "CABLE Output".
 $deadline = (Get-Date).AddSeconds(60)
 do {
     Start-Sleep -Seconds 2
     $endpoints = @(Get-PnpDevice -Class AudioEndpoint -PresentOnly -ErrorAction SilentlyContinue)
-} until ($endpoints.Count -ge 3 * $Cables -or (Get-Date) -gt $deadline)
+} until ($endpoints.Count -ge 3 -or (Get-Date) -gt $deadline)
 Get-PnpDevice -Class MEDIA -PresentOnly -ErrorAction SilentlyContinue |
     Format-Table -AutoSize Status, Problem, FriendlyName, InstanceId
 $endpoints | Format-Table -AutoSize Status, FriendlyName
 if ($endpoints.Count -eq 0) { throw "Windows no creó ningún dispositivo de audio" }
+exit 0  # si no, GitHub toma el código de salida de devcon (1 = "reiniciar")
