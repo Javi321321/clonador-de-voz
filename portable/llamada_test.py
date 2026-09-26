@@ -506,7 +506,8 @@ def their_turn(result, since, clonavoz, b, heard, whisper, them) -> dict:
         result["se escuchó"] = text
         match = overlap(result["traducción"], text)
         check(match >= 0.5, f"en tus auriculares se entiende la traducción ({match:.0%}): {text!r}")
-        print(f"  empezó a sonar {result['demora']:.1f} s después de que terminó de hablar", flush=True)
+        when = "antes" if result["demora"] < 0 else "después"
+        print(f"  empezó a sonar {abs(result['demora']):.1f} s {when} de que terminó de hablar", flush=True)
     for m in clonavoz.matches(r"(Te hablan en .*)", since):
         print(f"  clonavoz: {m.group(1)}", flush=True)
     return result

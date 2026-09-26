@@ -226,6 +226,11 @@ class AudioOutput:
     # colchón: si una parte se demora un poco, no se corta la voz. En una PC
     # que genera la voz muy rápido alcanza con menos (ver pipeline._warm_up).
     STREAM_CUSHION_SECONDS = 0.25
+    # Buffer de la placa de sonido. Con el mínimo ("low": ~9 ms en Linux) la voz
+    # se entrecorta mientras la PC genera la frase siguiente (medido en una
+    # videollamada de prueba: se perdían sílabas); con 0.15 s no se corta y la
+    # traducción suena apenas después (en Windows, MME ya usaba 0.09 s).
+    OUTPUT_LATENCY_SECONDS = 0.15
 
     def __init__(self, device: int | None, preferred_rate: int | None = None) -> None:
         self.device = device
@@ -251,10 +256,9 @@ class AudioOutput:
         for rate in rates:
             for channels in dict.fromkeys([1, min(2, int(info["max_output_channels"]))]):
                 try:
-                    # Buffer chico: la traducción suena ~0.1 s antes. Para que no se
-                    # corte, las frases que llegan por partes esperan un colchón.
                     stream = sd.OutputStream(
-                        device=index, samplerate=rate, channels=channels, dtype="float32", latency="low"
+                        device=index, samplerate=rate, channels=channels, dtype="float32",
+                        latency=self.OUTPUT_LATENCY_SECONDS,
                     )
                 except sd.PortAudioError as exc:
                     errors.append(f"{rate} Hz, {channels} canal(es): {exc}")
