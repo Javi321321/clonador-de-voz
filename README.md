@@ -389,6 +389,30 @@ a propósito, **ACTIVAR** tiene que activarlas y arrancar la conversación sola,
 pararla y dejar el micrófono predeterminado como estaba; y si Windows no deja usar el
 micrófono, tiene que avisarlo y no arrancar.
 
+**Probada en una videollamada de verdad, con una voz artificial de cada lado.** En una
+máquina Linux de GitHub se arma una llamada entre dos Chrome por WebRTC, como Meet
+(`portable/llamada_test.py`): "vos" hablás en español por tu micrófono, clonavoz
+`conversar` te traduce al cable virtual, que es el micrófono de tu navegador (el
+predeterminado, como lo deja ACTIVAR), y la otra persona te habla desde el otro Chrome,
+primero en inglés y después en portugués. Se transcribe lo que escucha cada lado. En una
+de esas llamadas:
+
+| Quién | Dijo | Lo que escuchó el otro lado |
+|---|---|---|
+| La otra persona | "Hi! Thanks for joining the call. How is the weather in Buenos Aires today?" | Vos, en español: "Hola, gracias por unirte a la llamada, ¿cómo está el clima…?" (empezó a sonar antes de que terminara: cada oración se traduce apenas la dice) |
+| Vos | "Hola, gracias por invitarme. Hoy hace calor y el cielo está despejado." | "Hi, thanks for inviting me. Today it's hot and the sky is clear." (1.2 s después de que terminaste) |
+| La otra persona | "Que bom! Eu moro em São Paulo e aqui está chovendo muito." | "Bien, vivo en São Paulo y aquí llueve mucho." Y clonavoz cambió solo: "desde ahora te escuchan en portugués" |
+| Vos | "Me encanta el fútbol, el domingo lo voy a mirar por televisión." | "Eu amo futebol, domingo eu vou assistir na TV." (1.4 s después) |
+
+Esa prueba encontró un problema que se corrigió: con el buffer de audio mínimo, mientras
+la PC generaba la frase siguiente la voz se entrecortaba (a la otra persona le llegaba
+"Adorfe o deboide domingo"); ahora la salida tiene un buffer de 0.15 s. Google Meet en sí
+no se puede automatizar (para crear la reunión hace falta una cuenta de Google, y bloquea
+los navegadores automatizados), pero para clonavoz es lo mismo: Chrome, WebRTC, el
+micrófono que se le da al navegador y los parlantes donde suena la llamada. Las
+grabaciones de cada lado quedan en la pestaña Actions (artefacto
+`videollamada-grabaciones`).
+
 Para entender lo que decís se usa **Parakeet** (NVIDIA) si hablás uno de sus 25 idiomas
 europeos (español, inglés, portugués, francés, alemán, italiano, ruso, ucraniano, polaco,
 entre otros) y la PC tiene al menos 6 GB de RAM; si no, Whisper. En 10 minutos de

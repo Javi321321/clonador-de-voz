@@ -22,7 +22,9 @@ Uso (con los modelos ya descargados: clonavoz download-models --languages es en 
 
     xvfb-run -a python portable/llamada_test.py CARPETA_DE_DATOS SALIDA
 
-Necesita: pulseaudio (con el plugin de ALSA), Chromium y `pip install playwright`.
+Necesita: pulseaudio (con el plugin de ALSA), Xvfb y `pip install playwright` con
+`playwright install chromium` (u otro Chromium en la variable CHROMIUM). La
+corre el CI en una máquina Linux de GitHub (.github/workflows/llamada-linux.yml).
 Crea sus dispositivos virtuales en PulseAudio y los define para ALSA en
 ~/.asoundrc (lo deja como estaba al terminar).
 """
@@ -52,7 +54,8 @@ from clonavoz.piper_tts import PiperSynthesizer  # noqa: E402
 from faster_whisper import WhisperModel  # noqa: E402
 
 RATE = 16000
-CHROMIUM = os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome")
+# El Chromium a usar: el de CHROMIUM, o si no, el que instaló Playwright.
+CHROMIUM = os.environ.get("CHROMIUM") or None
 SINKS = ("mi_voz", "cable", "parlantes_a", "parlantes_b", "auriculares")
 ASOUNDRC = """# Dispositivos de la prueba de llamada de clonavoz (portable/llamada_test.py).
 pcm.mi_microfono {
