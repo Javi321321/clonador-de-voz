@@ -53,6 +53,7 @@ def test_you_are_heard_in_the_language_they_speak(monkeypatch):
     assert p._synth.loaded == ["pt"]
     assert p.switch_target("pt")
     assert p.target_language.code == "pt" and p._translator.pair == ("es", "pt")
+    assert p._current == (p.target_language, p._translator)
     assert not p.switch_target("fr")  # sin preparar: sigue igual
     assert p.target_language.code == "pt"
     assert p.switch_target("en") and p._translator.pair == ("es", "en")

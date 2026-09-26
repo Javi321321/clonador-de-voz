@@ -29,6 +29,8 @@ from .config import PerformanceProfile
 # (cuadros de la frase como máximo, cuadros de la ventana): si una da un
 # resultado dudoso, se prueba con la siguiente y, si no, la de 30 s.
 _SHORT_WINDOWS = ((700, 1000),)
+# Para reconocer el idioma alcanza con los primeros 6.9 s (entran en la ventana corta).
+_LANGUAGE_SAMPLES = 690 * 160
 
 
 def _compression_ratio(text: str) -> float:
@@ -125,9 +127,10 @@ class SpeechRecognizer:
 
     def language_probabilities(self, audio: np.ndarray) -> tuple[dict[str, float], object]:
         """Qué tan probable es cada idioma (código de Whisper), según los primeros
-        7 s. Devuelve también lo codificado, para transcribir después sin volver
+        ~7 s. Devuelve también lo codificado, para transcribir después sin volver
         a codificar (con `transcribe_encoded`) si la frase es corta."""
-        clip = np.asarray(audio, dtype=np.float32)[: 7 * 16000]
+        audio = np.asarray(audio, dtype=np.float32)
+        clip = audio[:_LANGUAGE_SAMPLES]
         encoded = self._encode_short(clip)
         result = self._model.model.detect_language(encoded[0])[0]
         probabilities = {token[2:-2]: prob for token, prob in result}

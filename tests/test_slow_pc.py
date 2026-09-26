@@ -248,6 +248,28 @@ def test_long_phrases_use_the_normal_window():
     assert recognizer._transcribe_short(np.zeros(16000 * 8, dtype=np.float32), "es") is None
 
 
+def test_the_language_of_long_phrases_comes_from_their_first_seconds():
+    class FakeExtractor:  # como el de faster-whisper: un cuadro cada 10 ms, más uno
+        def __call__(self, audio):
+            return np.zeros((80, len(audio) // 160 + 1), dtype=np.float32)
+
+    class FakeCT2:
+        @staticmethod
+        def detect_language(encoded):
+            return [[("<|pt|>", 0.9), ("<|es|>", 0.1)]]
+
+    encoded = []
+    model = type("FakeWhisper", (), {"feature_extractor": FakeExtractor(), "model": FakeCT2()})()
+    model.encode = lambda window: encoded.append(window.shape) or "codificado"
+    recognizer = object.__new__(asr.SpeechRecognizer)
+    recognizer._model = model
+    for seconds in (2.0, 7.0, 12.0):
+        probabilities, reusable = recognizer.language_probabilities(np.zeros(int(16000 * seconds), dtype=np.float32))
+        assert probabilities == {"pt": 0.9, "es": 0.1}
+        assert (reusable is not None) == (seconds < 7.0)  # lo codificado sirve para el texto solo si entró entera
+    assert all(shape == (80, 1000) for shape in encoded)
+
+
 # --- el VAD sin reconocer mientras hablás ---
 
 

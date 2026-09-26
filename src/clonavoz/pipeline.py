@@ -425,7 +425,8 @@ class LiveVoicePipeline:
             return
         if self._asr.streaming:  # Vosk no pone puntos ni signos de pregunta
             text_src = restore_punctuation(text_src, self.source_language.code)
-        language, translator = self.target_language, self._translator
+        # El idioma y su traductor juntos (pueden cambiar entre frases, ver switch_target).
+        language, translator = getattr(self, "_current", None) or (self.target_language, self._translator)
         text_tgt = translator.translate(text_src)
         if self.on_transcript:
             self.on_transcript(text_src, text_tgt)
@@ -459,6 +460,7 @@ class LiveVoicePipeline:
         if code not in self._targets:
             return False
         language, translator = self._targets[code]
+        self._current = (language, translator)  # de una sola vez: lo lee _process
         self._translator, self.target_language = translator, language
         return True
 
