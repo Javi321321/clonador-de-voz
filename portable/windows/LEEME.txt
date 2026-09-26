@@ -1,0 +1,108 @@
+﻿clonavoz portable — traductor de voz en vivo con tu propia voz
+==============================================================
+
+Funciona en cualquier Windows 10/11 de 64 bits sin instalar nada: todo va en
+el pendrive. No necesita tarjeta gráfica.
+
+Cómo usarlo
+-----------
+1. Doble clic en "clonavoz.exe". Si Windows avisa "Windows protegió su PC":
+   "Más información" y "Ejecutar de todas formas" (el programa no está
+   firmado, es gratis y abierto). La primera vez se instala solo en la
+   carpeta "clonavoz" del pendrive (tarda un minuto) y se abre la ventana.
+   (Con la versión .zip: doble clic en "Abrir clonavoz.exe", en la carpeta.)
+2. Tocá ACTIVAR. clonavoz hace solo todo lo que se puede hacer solo, y te
+   pregunta solo lo que tenés que decidir vos:
+   - la primera vez baja los modelos (~2.7 GB, con internet, una sola vez; si
+     querés la "voz natural", pegás un token, ver abajo);
+   - si falta, graba tu voz: 15 segundos leyendo en voz alta un texto que
+     aparece en la ventana;
+   - si en esa PC falta el micrófono virtual VB-CABLE, te ofrece instalarlo
+     (viene incluido, ver abajo);
+   - arregla lo típico que hace que no te escuchen: tu micrófono o el cable
+     silenciados en Windows (o con el volumen en cero), el cable puesto como
+     parlante predeterminado; y si Windows no deja que los programas usen el
+     micrófono, te abre la configuración para permitirlo;
+   - pone "CABLE Output" como micrófono predeterminado de Windows, así la
+     videollamada lo usa sin que elijas nada (si en la app elegiste otro
+     micrófono, elegí "CABLE Output" en su configuración de audio);
+   - y arranca la conversación en las dos direcciones. Usá auriculares.
+   Lo que decís sale con tu voz en el idioma en que te hablan (automático:
+   empieza en inglés; si te hablan en portugués, pasa al portugués solo). Lo
+   que te dicen (en inglés, portugués o cualquier otro idioma) aparece en
+   español en la ventana y suena traducido en tus auriculares.
+3. DETENER (o cerrar la ventana) lo para y vuelve a poner tu micrófono de
+   siempre como predeterminado.
+
+Arriba en la ventana elegís los idiomas y las voces. "Ventana siempre
+visible" la deja encima de la videollamada, para leer los subtítulos, y con
+"Activar solo al abrir clonavoz" ni hace falta tocar ACTIVAR. Mientras está
+activo, la PC no se suspende. "Más
+opciones (menú)" abre el menú de consola (Iniciar.bat) con todo lo demás; por
+ejemplo, la opción 2 solo escucha traducido lo que suena en la PC (un video,
+una reunión) y la 4 te deja escuchar tu voz traducida.
+
+Tu traducción sale como la de un intérprete: dice cada idea alrededor de un
+segundo después de que la terminás de decir, mientras seguís hablando. Lo que
+te dicen suena traducido alrededor de un segundo después de que la otra
+persona termina cada frase.
+
+La voz de los demás (en la ventana, o la opción 8 del menú)
+-----------------------------------------------------------
+- Parecida (por defecto): una voz de hombre o de mujer según el tono de quien
+  habla. No es su voz.
+- Su voz clonada: SOLO con permiso de la otra persona. Antes de cada
+  conversación se te pregunta si te lo dio; si no, se usa la parecida. Su voz
+  suena solo en tus auriculares, nunca se manda a la llamada y no se guarda.
+- Ninguna: solo el texto en pantalla (subtítulos).
+
+Notebooks lentas
+----------------
+Al arrancar, clonavoz mide cuánto tarda tu PC. Si no llega a generar tu voz
+clonada en vivo, usa una voz rápida de tono parecido al tuyo (sin clonar) y te
+lo explica. En "Mi voz" (o la opción 9 del menú) elegís: automática, siempre
+clonada (aunque en una PC lenta la traducción tarde más) o la rápida.
+Consejos: tené la notebook enchufada (con batería Windows la hace más lenta),
+cerrá lo que no uses y hablá en frases cortas, con pausas.
+
+Voz natural (recomendada)
+-------------------------
+Es la que más se parece a vos y la que suena más natural (inglés, español,
+francés, alemán, portugués, italiano y neerlandés). Sus creadores (Kyutai)
+piden aceptar una condición: clonar solo voces con permiso de su dueño (la
+tuya). Una sola vez, gratis:
+  1. Creá una cuenta en https://huggingface.co/join
+  2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones.
+  3. En https://huggingface.co/settings/tokens creá un token de tipo "Read".
+  4. Pegalo cuando clonavoz baja los modelos (la primera vez que tocás
+     ACTIVAR), o después con la opción 10 del menú.
+El token no se guarda. Después funciona sin internet.
+
+Micrófono virtual VB-CABLE
+--------------------------
+Es por donde la videollamada escucha tu voz traducida. Viene incluido (en la
+carpeta "vbcable", tal cual lo publica su autor): no hace falta internet. Es un
+driver de Windows, así que no puede funcionar desde el pendrive: se instala
+una vez en cada PC, con su instalador oficial y permiso de administrador.
+ACTIVAR te ofrece instalarlo cuando falta (también abajo en la ventana,
+"VB-CABLE: falta en esta PC", o la opción 11 del menú): Windows pide permiso,
+tocás "Install Driver" y listo. Si Windows lo
+deja como parlante o micrófono predeterminado, clonavoz vuelve a poner los que
+tenías. Para no dejar nada en una PC prestada, el mismo instalador lo quita
+("Remove Driver": abajo en la ventana, o la opción 14 del menú).
+VB-CABLE es de VB-Audio Software (www.vb-cable.com), gratis para usar
+("donationware": si te sirve, podés colaborar con su autor).
+
+Tu voz y tus datos
+------------------
+Todo queda dentro de la carpeta "datos" (en el pendrive): tu muestra de voz,
+los modelos y lo que elegiste. En la computadora donde lo usás no se guarda
+nada tuyo. Lo único que se instala en esa PC, y solo si lo elegís, es el
+micrófono virtual VB-CABLE, que necesita ser administrador. Mientras clonavoz
+está activo, "CABLE Output" es el micrófono predeterminado de Windows; al
+detenerlo vuelve el tuyo (si la PC se apaga de golpe, vuelve la próxima vez
+que abrís clonavoz).
+
+Si esa PC no te deja instalar VB-CABLE, ACTIVAR igual te traduce lo que te
+dicen (a vos te escuchan sin traducir), y en el menú está la opción 4 (tu voz
+traducida en tus auriculares).

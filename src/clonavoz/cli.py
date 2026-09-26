@@ -2,100 +2,753 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import getpass
+import os
+import platform
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
+import numpy as np
+import soundfile as sf
+
 from . import audio_devices
-from .config import get_profile
+from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream, beep_signal, diagnose_microphone, to_dbfs
+from .console import StatusLine, format_meter
 from .enroll import record_voice_sample
 from .languages import get_language, list_languages
-from .pipeline import LiveVoicePipeline
+from .paths import data_dir
 
-DEFAULT_VOICE_SAMPLE = Path.home() / ".clonavoz" / "mi_voz.wav"
+DEFAULT_VOICE_SAMPLE = data_dir() / "mi_voz.wav"
+_WINDOWS = platform.system() == "Windows"
 
 
 def _cmd_devices(_args: argparse.Namespace) -> None:
     audio_devices.print_devices()
     virtual = audio_devices.find_virtual_output_device()
     if virtual:
-        print(f"\nMicrófono virtual detectado: [{virtual.index}] {virtual.name}")
+        print(f"\nMicrófono virtual detectado: clonavoz reproduce la traducción en [{virtual.index}] {virtual.name}")
+        mic_name = audio_devices.virtual_mic_name(virtual.name)
+        if mic_name:
+            print(f"En Zoom/Meet/Teams/Discord elegí como micrófono: {mic_name}")
     else:
         print(
             "\nNo se detectó un micrófono virtual instalado todavía.\n"
             "Revisa el README para instalar VB-CABLE (Windows), BlackHole (macOS) "
             "o crear un sink virtual (Linux, ver scripts/linux_create_virtual_mic.sh)."
         )
+    if _WINDOWS:
+        print(
+            "\nEn Windows cada dispositivo aparece varias veces (MME, DirectSound, WASAPI, WDM-KS): "
+            "cualquiera sirve; ante la duda, usá el de MME (los primeros de la lista)."
+        )
 
 
 def _cmd_languages(_args: argparse.Namespace) -> None:
-    print(f"{'código':8s} {'idioma':22s} clonación de voz")
+    from . import pocket_voice
+    from .piper_tts import has_voice
+
+    print(f"{'código':8s} {'idioma':22s} tu voz en ese idioma")
     for lang in list_languages():
-        clona = "sí" if lang.xtts_code else "no (voz neutra)"
-        print(f"{lang.code:8s} {lang.name:22s} {clona}")
+        if pocket_voice.supports(lang.code):
+            voice = "natural" + (" (descargada)" if pocket_voice.cloning_ready(lang.code) else "") + " o liviana"
+        elif has_voice(lang.code):
+            voice = "liviana"
+        else:
+            voice = "todavía sin voz (solo se puede traducir DESDE este idioma)"
+        print(f"{lang.code:8s} {lang.name:22s} {voice}")
     print(
-        "\nTambién puedes usar directamente cualquier código NLLB-200 (formato "
-        "FLORES-200, ej. 'ben_Beng') para traducir a otros idiomas que no están "
-        "en esta lista, aunque no tengan clonación de voz."
+        "\nVoz natural: la más parecida a vos y la que suena más natural (necesita descargarla con "
+        "`clonavoz download-models`). Voz liviana: tu timbre sobre una voz base, en más idiomas.\n"
+        "Para traducir tu voz, cualquier idioma de la lista sirve como idioma en el que hablás."
     )
 
 
 def _cmd_enroll(args: argparse.Namespace) -> None:
     out_path = Path(args.output) if args.output else DEFAULT_VOICE_SAMPLE
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    record_voice_sample(out_path, seconds=args.seconds, input_device=args.input_device)
+    try:
+        record_voice_sample(out_path, seconds=args.seconds, input_device=args.input_device)
+    except AudioDeviceError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
     print(f"Muestra de voz guardada en: {out_path}")
+
+
+def _cmd_download_models(args: argparse.Namespace) -> None:
+    languages = []
+    for code in dict.fromkeys(args.languages):
+        try:
+            languages.append(get_language(code))
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+
+    from . import openvoice, parakeet_asr, piper_tts, translate, vosk_asr  # translate carga torch antes que ctranslate2
+
+    from faster_whisper.utils import download_model
+
+    parakeet = any(parakeet_asr.supports(lang.code) for lang in languages)
+    if parakeet:
+        print("Reconocimiento de voz preciso (Parakeet, ~640 MB)...")
+        parakeet_asr.download()
+    # Whisper "tiny" siempre (para PCs con poca memoria), "base" para entender
+    # lo que te dicen en cualquier idioma, y "small" solo si hay un idioma que
+    # Parakeet no entiende (para PCs potentes).
+    whisper_sizes = args.whisper or ["tiny", "base"] + (
+        [] if all(parakeet_asr.supports(lang.code) for lang in languages) else ["small"]
+    )
+    for size in whisper_sizes:
+        print(f"Reconocimiento de voz (Whisper '{size}')...")
+        download_model(size)
+    for lang in languages:
+        if vosk_asr.supports(lang.code):
+            print(f"Reconocimiento rápido para PCs lentas (Vosk, {lang.name}, ~40 MB)...")
+            try:
+                vosk_asr.download(lang.code)
+            except Exception as exc:  # noqa: BLE001 - es opcional: sin él se usa Whisper
+                print(f"  (no se pudo: {exc}. En PCs lentas se usa Whisper)")
+    print("Traductor (NLLB-200)...")
+    translate.download()
+    for source in languages:
+        for target in languages:
+            if source.code != target.code:
+                print(f"Traductor rápido Opus-MT ({source.code} -> {target.code})...")
+                try:
+                    models = translate.download_opus(source.code, target.code)
+                except Exception as exc:  # noqa: BLE001 - es opcional: sin él se usa NLLB-200
+                    print(f"  (no se pudo: {exc}. Se usa NLLB-200, más lento)")
+                    continue
+                if not models:
+                    print("  (no existe para ese par: se usa NLLB-200)")
+                elif len(models) > 1:
+                    print("  (pasando por el inglés)")
+    print("Conversor de timbre (OpenVoice V2)...")
+    openvoice.ToneColorConverter.from_pretrained()
+    for lang in languages:
+        print(f"Voces base de Piper para {lang.name}...")
+        try:
+            piper_tts.download_voices(lang.code)
+            for voice_id in dict.fromkeys(piper_tts.listen_voices(lang.code)):
+                piper_tts.ensure_voice(voice_id)  # para decirte en ese idioma lo que te dicen
+        except RuntimeError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+    _download_natural_voice(languages, args.hf_token)
+    (data_dir() / "modelos_listos.txt").write_text(
+        "Modelos descargados para: " + ", ".join(lang.code for lang in languages) + "\n", encoding="utf-8"
+    )
+    print(f"Listo: ya se puede usar sin internet (datos en {data_dir()}).")
+
+
+_NATURAL_VOICE_HELP = """
+Voz natural (recomendada): clona tu voz directamente y suena mucho más natural que la liviana.
+Sus creadores (Kyutai) piden aceptar una condición antes de bajarla: clonar solo voces con el
+permiso de su dueño (la tuya). Se hace una sola vez:
+  1. Creá una cuenta gratis en https://huggingface.co/join
+  2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones (botón de arriba).
+  3. En https://huggingface.co/settings/tokens creá un token de tipo "Read" y copialo.
+El token se usa solo para esta descarga: no se guarda en ningún lado.
+"""
+
+
+def _download_natural_voice(languages, token: str | None) -> None:
+    """Descarga la voz natural de los idiomas que la tienen. Es opcional: si no
+    se puede, se sigue usando el motor liviano."""
+    from . import pocket_voice
+
+    wanted = [lang for lang in languages if pocket_voice.supports(lang.code) and not pocket_voice.cloning_ready(lang.code)]
+    if not wanted:
+        return
+    token = token or os.environ.get("HF_TOKEN") or None
+    if token is None and sys.stdin.isatty():
+        print(_NATURAL_VOICE_HELP)
+        token = getpass.getpass("Pegá tu token (no se ve al pegarlo, es normal) y Enter, o solo Enter para saltear: ")
+        token = token.strip() or None
+        if token is None:
+            print("Salteado: se va a usar la voz liviana. Podés bajar la natural cuando quieras.")
+            return
+    for lang in wanted:
+        print(f"Voz natural (Pocket TTS) para {lang.name}...")
+        try:
+            pocket_voice.download(lang.code, token)
+        except RuntimeError as exc:
+            print(exc)
+            print("Mientras tanto se usa la voz liviana (Piper + OpenVoice).")
+            return
+
+
+def _resolve_output_device(requested: int | None, to_speakers: bool = False) -> audio_devices.AudioDevice:
+    if to_speakers:
+        speakers = audio_devices.default_output_device()
+        if speakers is None:
+            print("No se encontró una salida de audio (parlantes o auriculares).", file=sys.stderr)
+            sys.exit(1)
+        print(
+            f"La traducción va a sonar en [{speakers.index}] {speakers.name}. Usá auriculares: si "
+            "suena por parlantes, el micrófono la vuelve a escuchar y la traduce de nuevo."
+        )
+        return speakers
+    if requested is not None:
+        devices = audio_devices.list_devices()
+        if 0 <= requested < len(devices) and devices[requested].max_output_channels > 0:
+            return devices[requested]
+        print(
+            f"--output-device {requested} no es un dispositivo de salida. "
+            "Ejecuta `clonavoz devices` para ver la lista.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    virtual = audio_devices.find_virtual_output_device()
+    if virtual is None:
+        print(
+            "No se especificó --output-device y no se detectó un micrófono "
+            "virtual instalado. Ejecuta `clonavoz devices` para ver la lista, "
+            "o revisa el README para instalar uno.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(f"Salida detectada automáticamente: [{virtual.index}] {virtual.name}")
+    return virtual
+
+
+def _check_voice_sample(path: Path) -> None:
+    if not path.exists():
+        print(
+            f"No se encontró la muestra de voz de referencia: {path}\nGrábala primero con `clonavoz enroll`.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    audio, _rate = sf.read(str(path), dtype="float32")
+    peak_db = to_dbfs(float(np.max(np.abs(audio))) if audio.size else 0.0)
+    if peak_db < -40:
+        print(
+            f"Aviso: tu muestra de voz ({path}) está casi en silencio (máximo {peak_db:.0f} dB), así que "
+            "la voz clonada va a salir mal o muda. Revisá el micrófono con `clonavoz test-audio` y "
+            "volvé a grabarla con `clonavoz enroll`."
+        )
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
     try:
         get_language(args.source_lang)
-        get_language(args.target_lang)
+        target = get_language(args.target_lang)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
+    # Importes pesados (torch, Whisper, NLLB, voz) solo para este comando.
+    from .config import get_profile
+    from .pipeline import LiveVoicePipeline
+    from .voice_clone import ENGINE_NAMES, choose_engine
+
     profile = get_profile(args.profile)
-    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device})")
+    try:
+        engine, note = choose_engine(args.voice_engine, profile.voice_engine, target)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    if note:
+        print(note)
+    profile = dataclasses.replace(profile, voice_engine=engine)
+    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device}, voz: {ENGINE_NAMES[engine]})")
 
     reference_wav = Path(args.voice_sample) if args.voice_sample else DEFAULT_VOICE_SAMPLE
+    _check_voice_sample(reference_wav)
+    output = _resolve_output_device(args.output_device, to_speakers=args.to_speakers)
+    input_device, notes = audio_devices.resolve_input_device(args.input_device)
+    for note in notes:
+        print(note)
 
-    output_device = args.output_device
-    if output_device is None:
-        virtual = audio_devices.find_virtual_output_device()
-        if virtual is None:
-            print(
-                "No se especificó --output-device y no se detectó un micrófono "
-                "virtual instalado. Ejecuta `clonavoz devices` para ver la lista, "
-                "o revisa el README para instalar uno.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        output_device = virtual.index
-        print(f"Salida detectada automáticamente: [{output_device}] {virtual.name}")
+    status = StatusLine()
 
     def on_transcript(text_src: str, text_tgt: str) -> None:
-        print(f"  {args.source_lang} > {text_src}")
-        print(f"  {args.target_lang} > {text_tgt}")
+        status.print(f"  {args.source_lang} > {text_src}")
+        status.print(f"  {args.target_lang} > {text_tgt}")
 
-    pipeline = LiveVoicePipeline(
-        profile=profile,
-        source_lang=args.source_lang,
-        target_lang=args.target_lang,
-        reference_wav=reference_wav,
-        input_device=args.input_device,
-        output_device=output_device,
-        on_transcript=on_transcript,
-    )
-    pipeline.start()
-    print("Escuchando... selecciona el micrófono virtual en tu app de videollamada. Ctrl+C para detener.")
+    print("Cargando modelos (la primera vez se descargan y puede tardar varios minutos)...")
     try:
-        while True:
-            time.sleep(1)
+        pipeline = LiveVoicePipeline(
+            profile=profile,
+            source_lang=args.source_lang,
+            target_lang=args.target_lang,
+            reference_wav=reference_wav,
+            input_device=input_device,
+            output_device=output.index,
+            on_transcript=on_transcript,
+            on_message=status.print,
+            allow_engine_fallback=args.voice_engine == "auto",
+        )
+    except RuntimeError as exc:  # ej. idioma sin voz de Piper, o le falta un paquete
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    try:
+        pipeline.start()
+    except AudioDeviceError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Reconocimiento de voz: {pipeline.asr_name} | traductor: {pipeline.translator_name}")
+    print(f"Micrófono (tu voz): {pipeline.mic.description}")
+    print(f"Salida de la traducción: {pipeline.output.description}")
+    mic_name = audio_devices.virtual_mic_name(output.name)
+    if mic_name:
+        print(f"En Zoom/Meet/Teams/Discord elegí como micrófono: {mic_name}")
+    if pipeline.translate_while_speaking:
+        when = "cada idea sale traducida alrededor de un segundo después de que la terminás de decir"
+    else:
+        when = "cada frase sale traducida cuando hacés una pausa"
+    print(f"Escuchando... hablá normalmente: {when}, por el micrófono virtual. Ctrl+C para detener.")
+    try:
+        _show_live_status(pipeline, status)
     except KeyboardInterrupt:
         pass
     finally:
+        status.clear()
         pipeline.stop()
+    if pipeline.error is not None:
+        print(f"Error: {pipeline.error}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _show_live_status(pipeline, status: StatusLine) -> None:
+    """Medidor del micrófono + en qué está el pipeline, hasta Ctrl+C o un
+    error. Avisa si del micrófono no llega audio (en vez de quedarse mudo)."""
+    started = time.monotonic()
+    checked_mic = False
+    warned_stall = False
+    while pipeline.error is None:
+        live = pipeline.poll_status()
+        state = []
+        if live.speaking:
+            state.append("hablando")
+        if live.pending:
+            state.append(f"traduciendo {live.pending}")
+        if live.playing:
+            state.append("reproduciendo")
+        status.update(f"Mic {format_meter(live.level_db, width=16)} | {', '.join(state) or 'esperando voz'}")
+
+        now = time.monotonic()
+        stats = pipeline.mic.stats
+        if not checked_mic and now - started > 5:
+            checked_mic = True
+            for problem in diagnose_microphone(stats, windows=_WINDOWS, expect_voice=False):
+                status.print(f"[clonavoz] Aviso: {problem}")
+        if checked_mic and stats.blocks and not warned_stall and now - stats.last_block_time > 3:
+            warned_stall = True
+            status.print("[clonavoz] Aviso: el micrófono dejó de entregar audio (¿se desconectó?).")
+        time.sleep(0.1)
+
+
+def _language_name(code: str) -> str:
+    try:
+        return get_language(code).name.lower()
+    except ValueError:
+        return code
+
+
+def _resolve_headphones(requested: int | None) -> audio_devices.AudioDevice | None:
+    """Dónde escuchás la traducción de lo que te dicen: tus auriculares (la
+    salida predeterminada), nunca el micrófono virtual (eso lo escucharía la
+    otra persona). None si no hay dónde: entonces se muestra solo en pantalla."""
+    devices = audio_devices.list_devices()
+    if requested is not None:
+        if 0 <= requested < len(devices) and devices[requested].max_output_channels > 0:
+            return devices[requested]
+        print(
+            f"--headphones-device/--output-device {requested} no es una salida de audio. "
+            "Ejecuta `clonavoz devices` para ver la lista.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    device = audio_devices.default_output_device()
+    if device is None:
+        print("No se encontró una salida de audio (auriculares o parlantes): lo que te dicen se ve solo en pantalla.")
+        return None
+    if not audio_devices.is_virtual_output(device.name):
+        return device
+    # (sin el "Microsoft Sound Mapper": apunta al predeterminado, o sea al cable)
+    others = [
+        dev
+        for dev in devices
+        if dev.max_output_channels > 0
+        and not audio_devices.is_virtual_output(dev.name)
+        and not audio_devices.is_default_alias(dev.name)
+        and dev.hostapi == device.hostapi
+    ]
+    if not others:
+        print(
+            f"Tu salida de audio predeterminada es '{device.name}', el micrófono virtual: ahí la traducción "
+            "la escucharía la otra persona, no vos. Por eso lo que te dicen se ve solo en pantalla. Para "
+            "escucharlo, conectá auriculares (o elegilos como salida predeterminada de Windows, o con "
+            "--headphones-device: ver `clonavoz devices`)."
+        )
+        return None
+    best = audio_devices.best_listening_device(others)
+    print(
+        f"Tu salida predeterminada es el micrófono virtual ({device.name}): lo que te dicen suena en "
+        f"[{best.index}] {best.name}. Para elegir otra: --headphones-device."
+    )
+    return best
+
+
+def _their_voice(args: argparse.Namespace) -> str:
+    """La voz con que escuchás lo que te dicen. Clonar la suya, solo con permiso."""
+    from .listen import CONSENT_NOTICE
+
+    if args.their_voice != "clonada":
+        return args.their_voice
+    print(CONSENT_NOTICE)
+    if args.permiso_clonar:
+        return "clonada"
+    if sys.stdin.isatty():
+        answer = input("¿La otra persona te dio permiso para clonar su voz? (s/n): ").strip().lower()
+        if answer in ("s", "si", "sí", "y", "yes"):
+            return "clonada"
+    print("Sin su permiso no se clona su voz: se usa una voz parecida (hombre o mujer, según su tono).")
+    return "parecida"
+
+
+def _check_languages(codes) -> None:
+    for code in codes:
+        try:
+            get_language(code)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+
+
+def _incoming_printer(status: StatusLine, listen_code: str):
+    def on_transcript(code: str, text: str, translated: str | None) -> None:
+        status.print(f"  Te dicen ({_language_name(code)}) > {text}")
+        if translated is not None:
+            status.print(f"          {listen_code} > {translated}")
+
+    return on_transcript
+
+
+def _cmd_listen(args: argparse.Namespace) -> None:
+    _check_languages([args.listen_lang, *args.their_langs])
+    their_voice = _their_voice(args)
+    from .config import get_profile
+    from .listen import IncomingPipeline
+
+    profile = get_profile(args.profile)
+    output = _resolve_headphones(args.output_device)
+    if output is None:
+        their_voice = "ninguna"
+    status = StatusLine()
+    print("Cargando modelos (la primera vez se descargan y puede tardar varios minutos)...")
+    try:
+        pipeline = IncomingPipeline(
+            profile,
+            args.listen_lang,
+            output_device=output.index if output else None,
+            their_voice=their_voice,
+            priority=tuple(args.their_langs),
+            call_device=args.call_device,
+            on_transcript=_incoming_printer(status, args.listen_lang),
+            on_message=status.print,
+        )
+        pipeline.start()
+    except (RuntimeError, AudioDeviceError) as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    print(f"Reconocimiento de voz: {pipeline.asr_name} | traductor: {pipeline.translator_name}")
+    print(f"Lo que se escucha: {pipeline.mic.description}")
+    if their_voice != "ninguna":
+        print(f"La traducción suena en: {pipeline.output.description}")
+    print(
+        f"Escuchando... lo que te digan (en {', '.join(_language_name(c) for c in args.their_langs)} o cualquier "
+        f"otro idioma) sale en {_language_name(args.listen_lang)} en pantalla"
+        + ("" if their_voice == "ninguna" else " y en tus auriculares")
+        + ". Ctrl+C para detener."
+    )
+    try:
+        _show_status([("Te dicen", pipeline)], status)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        status.clear()
+        pipeline.stop()
+    if pipeline.error is not None:
+        print(f"Error: {pipeline.error}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_converse(args: argparse.Namespace) -> None:
+    auto = args.target_lang == "auto"
+    start_lang = args.start_lang if auto else args.target_lang
+    listen_lang = args.listen_lang or args.source_lang
+    _check_languages([args.source_lang, start_lang, listen_lang, *args.their_langs])
+    their_voice = _their_voice(args)
+    from .config import get_profile
+    from .listen import IncomingPipeline
+    from .pipeline import LiveVoicePipeline
+    from .voice_clone import ENGINE_NAMES, choose_engine
+
+    profile = get_profile(args.profile)
+    try:
+        engine, note = choose_engine(args.voice_engine, profile.voice_engine, get_language(start_lang))
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    if note:
+        print(note)
+    profile = dataclasses.replace(profile, voice_engine=engine)
+    print(f"Perfil de rendimiento: {profile.name} (dispositivo: {profile.device}, tu voz: {ENGINE_NAMES[engine]})")
+    reference_wav = Path(args.voice_sample) if args.voice_sample else DEFAULT_VOICE_SAMPLE
+    _check_voice_sample(reference_wav)
+    virtual = _resolve_output_device(args.output_device)
+    headphones = _resolve_headphones(args.headphones_device)
+    if headphones is None:
+        their_voice = "ninguna"
+    input_device, notes = audio_devices.resolve_input_device(args.input_device)
+    for note in notes:
+        print(note)
+
+    status = StatusLine()
+    holder: dict[str, LiveVoicePipeline] = {}
+
+    def on_my_transcript(text_src: str, text_tgt: str) -> None:
+        status.print(f"  Vos ({args.source_lang}) > {text_src}")
+        status.print(f"          {holder['out'].target_language.code} > {text_tgt}")
+
+    def on_language(code: str) -> None:
+        outgoing = holder.get("out")
+        if not auto or outgoing is None or code in (args.source_lang, outgoing.target_language.code):
+            return
+
+        def switch() -> None:
+            outgoing.prepare_languages([code])
+            if outgoing.switch_target(code):
+                name = _language_name(code)
+                status.print(f"[clonavoz] Te hablan en {name}: desde ahora te escuchan en {name}.")
+
+        threading.Thread(target=switch, daemon=True, name="cambiar-idioma").start()
+
+    print("Cargando modelos (la primera vez se descargan y puede tardar varios minutos)...")
+    try:
+        outgoing = LiveVoicePipeline(
+            profile=profile,
+            source_lang=args.source_lang,
+            target_lang=start_lang,
+            reference_wav=reference_wav,
+            input_device=input_device,
+            output_device=virtual.index,
+            on_transcript=on_my_transcript,
+            on_message=status.print,
+            allow_engine_fallback=args.voice_engine == "auto",
+        )
+        holder["out"] = outgoing
+        if auto:
+            outgoing.prepare_languages([code for code in args.their_langs if code != args.source_lang])
+        incoming = IncomingPipeline(
+            profile,
+            listen_lang,
+            output_device=headphones.index if headphones else None,
+            their_voice=their_voice,
+            priority=tuple(args.their_langs),
+            call_device=args.call_device,
+            on_transcript=_incoming_printer(status, listen_lang),
+            on_message=status.print,
+            on_language=on_language,
+        )
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    # Si usás parlantes, tu micrófono escucharía la traducción de lo que te dicen
+    # y la mandaría traducida a la llamada: mientras suena, no se lo escucha.
+    outgoing.muted_while = lambda: incoming.playing
+    try:
+        outgoing.start()
+        try:
+            incoming.start()
+        except AudioDeviceError:
+            outgoing.stop()
+            raise
+    except AudioDeviceError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Tu voz: {outgoing.asr_name} | lo que te dicen: {incoming.asr_name}")
+    print(f"Tu micrófono: {outgoing.mic.description}")
+    print(f"Lo que te dicen se escucha de: {incoming.mic.description}")
+    if their_voice == "ninguna":
+        print("Lo que te dicen: traducido solo en pantalla (subtítulos).")
+    else:
+        print(f"Lo que te dicen suena traducido en: {incoming.output.description}")
+    mic_name = audio_devices.virtual_mic_name(virtual.name)
+    if mic_name:
+        print(f"En Zoom/Meet/Teams/Discord/WhatsApp elegí como micrófono: {mic_name}")
+    heard_in = (
+        f"en el idioma en que te hablen (por ahora, {_language_name(start_lang)})" if auto
+        else f"en {_language_name(start_lang)}"
+    )
+    print(
+        f"Listo: vos hablás en {_language_name(args.source_lang)} y te escuchan {heard_in}; lo que te digan "
+        f"sale en {_language_name(listen_lang)}. Usá auriculares. Ctrl+C para detener."
+    )
+    try:
+        _show_status([("Vos", outgoing), ("Te dicen", incoming)], status, extra=lambda: (
+            f"te escuchan en {_language_name(outgoing.target_language.code)}"
+        ))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        status.clear()
+        incoming.stop()
+        outgoing.stop()
+    for pipeline in (outgoing, incoming):
+        if pipeline.error is not None:
+            print(f"Error: {pipeline.error}", file=sys.stderr)
+            sys.exit(1)
+
+
+def _show_status(pipelines, status: StatusLine, extra=None) -> None:
+    """Medidor y estado de cada dirección, hasta Ctrl+C o un error."""
+    started = time.monotonic()
+    warned = set()
+    while all(pipeline.error is None for _, pipeline in pipelines):
+        parts = []
+        for name, pipeline in pipelines:
+            live = pipeline.poll_status()
+            state = (
+                "hablando" if live.speaking else "traduciendo" if live.pending else "sonando" if live.playing else "-"
+            )
+            parts.append(f"{name} {format_meter(live.level_db, width=8)} {state}")
+            if name not in warned and time.monotonic() - started > 8 and pipeline.mic.stats.blocks == 0:
+                warned.add(name)
+                source = pipeline.mic.description or "la entrada"
+                status.print(f"[clonavoz] Aviso ({name}): no llega audio de {source}.")
+            error = getattr(pipeline.mic, "error", None)
+            if error is not None and name + "!" not in warned:
+                warned.add(name + "!")
+                status.print(f"[clonavoz] Se cortó el audio de la llamada: {error}")
+        if extra is not None:
+            parts.append(extra())
+        status.update(" | ".join(parts))
+        time.sleep(0.1)
+
+
+def _cmd_test_audio(args: argparse.Namespace) -> None:
+    print("== 1/2: tu micrófono ==")
+    device, notes = audio_devices.resolve_input_device(args.input_device)
+    for note in notes:
+        print(note)
+    vad = None
+    try:
+        from .vad import StreamingVAD
+
+        vad = StreamingVAD()
+    except Exception as exc:  # noqa: BLE001 - la prueba de nivel sirve igual sin detector de voz
+        print(f"(No se pudo cargar el detector de voz; se mide solo el nivel: {exc})")
+
+    frames: queue.Queue = queue.Queue()
+    mic = MicrophoneStream(device, on_frame=frames.put if vad is not None else None)
+    try:
+        mic.start()
+    except AudioDeviceError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    print(f"Micrófono: {mic.description}")
+    print(f"Hablá durante {args.seconds:.0f} segundos: el medidor tiene que moverse con tu voz.")
+
+    status = StatusLine()
+    speech_frames = 0
+    end = time.monotonic() + args.seconds
+    try:
+        while time.monotonic() < end:
+            while vad is not None and not frames.empty():
+                vad.push(frames.get_nowait())
+                speech_frames += vad.is_speaking
+            voice = " | VOZ DETECTADA" if vad is not None and vad.is_speaking else ""
+            status.update(f"Mic {format_meter(mic.pop_level_db())}{voice}")
+            time.sleep(0.05)
+    finally:
+        mic.close()
+        status.clear()
+
+    summary = f"Nivel máximo: {to_dbfs(mic.stats.max_peak):.0f} dB"
+    if vad is not None:
+        summary += f" | voz detectada durante {speech_frames * vad.frame_size() / audio_devices.SAMPLE_RATE:.1f} s"
+    print(summary)
+    heard_speech = speech_frames > 0 if vad is not None else None
+    problems = diagnose_microphone(mic.stats, heard_speech, windows=_WINDOWS)
+    for problem in problems:
+        print(f"PROBLEMA: {problem}")
+    if not problems:
+        print("OK: clonavoz escucha bien tu micrófono.")
+
+    if not args.skip_output:
+        print("\n== 2/2: micrófono virtual (lo que escucha la videollamada) ==")
+        problems += _test_virtual_mic(args.output_device)
+    if problems:
+        sys.exit(1)
+
+
+def _test_virtual_mic(requested_output: int | None) -> list[str]:
+    output = _resolve_output_device(requested_output)
+    player = AudioOutput(output.index)
+    try:
+        player.start()
+    except AudioDeviceError as exc:
+        print(f"PROBLEMA: {exc}")
+        return [str(exc)]
+
+    # Si se encuentra la otra punta del cable (ej. "CABLE Output"), se graba
+    # mientras suenan los pitidos para comprobar solos que el audio llega.
+    loopback = None
+    loopback_device = audio_devices.find_virtual_mic_input(output)
+    if loopback_device is not None:
+        loopback = MicrophoneStream(loopback_device.index)
+        try:
+            loopback.start()
+        except AudioDeviceError:
+            loopback = None
+
+    mic_name = audio_devices.virtual_mic_name(output.name)
+    print(f"Reproduciendo 3 pitidos en {player.description}...")
+    if mic_name:
+        print(
+            f"Mientras suenan, el medidor de '{mic_name}' (en la configuración de sonido, o en la "
+            "prueba de micrófono de Zoom/Meet/Discord) tiene que moverse."
+        )
+    try:
+        player.play(beep_signal(player.samplerate), player.samplerate)
+    finally:
+        player.close()  # espera a que termine de sonar
+        if loopback is not None:
+            time.sleep(0.3)
+            loopback.close()
+
+    if loopback is None:
+        return []
+    if to_dbfs(loopback.stats.max_peak) > -40:
+        print(f"OK: los pitidos llegaron a {loopback.description}. Ese es el micrófono a elegir en la videollamada.")
+        return []
+    problem = (
+        f"los pitidos NO llegaron a {loopback.description}. Revisá que el cable virtual esté bien "
+        "instalado (en Windows, reiniciá después de instalar VB-CABLE) y que ese dispositivo no "
+        "esté deshabilitado ni silenciado en la configuración de sonido."
+    )
+    print(f"PROBLEMA: {problem}")
+    return [problem]
+
+
+def _device(value: str) -> int | str:
+    """Un micrófono por su número (ver `clonavoz devices`) o por su nombre."""
+    value = value.strip()
+    return int(value) if value.isdigit() else value
+
+
+_INPUT_DEVICE_HELP = (
+    "Tu micrófono: su número (ver `clonavoz devices`) o su nombre, ej. \"Micrófono (Realtek(R) Audio)\" "
+    "o una parte, ej. realtek. Por defecto, el predeterminado del sistema (si es el cable virtual, uno real)"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,32 +764,166 @@ def build_parser() -> argparse.ArgumentParser:
     p_languages = sub.add_parser("languages", help="Lista los idiomas soportados")
     p_languages.set_defaults(func=_cmd_languages)
 
+    p_test = sub.add_parser(
+        "test-audio",
+        help="Prueba tu micrófono (medidor de nivel) y el micrófono virtual (pitidos de prueba)",
+    )
+    p_test.add_argument("--seconds", type=float, default=8.0, help="Segundos para probar el micrófono")
+    p_test.add_argument("--input-device", type=_device, default=None, help=_INPUT_DEVICE_HELP)
+    p_test.add_argument("--output-device", type=int, default=None, help="Índice del micrófono virtual de salida")
+    p_test.add_argument("--skip-output", action="store_true", help="Probar solo el micrófono")
+    p_test.set_defaults(func=_cmd_test_audio)
+
     p_enroll = sub.add_parser("enroll", help="Graba una muestra de tu voz para clonarla")
     p_enroll.add_argument("--output", help="Ruta donde guardar el .wav de referencia")
     p_enroll.add_argument("--seconds", type=float, default=15.0)
-    p_enroll.add_argument("--input-device", type=int, default=None)
+    p_enroll.add_argument("--input-device", type=_device, default=None, help=_INPUT_DEVICE_HELP)
     p_enroll.set_defaults(func=_cmd_enroll)
+
+    p_download = sub.add_parser(
+        "download-models", help="Descarga todo lo necesario para usar clonavoz sin internet"
+    )
+    p_download.add_argument(
+        "--languages", nargs="+", default=["es", "en", "pt"],
+        help="Idiomas que vas a usar (en los que hablás, te escuchan o te hablan), ej: es en pt fr. "
+        "Por defecto: es en pt",
+    )
+    p_download.add_argument(
+        "--hf-token",
+        help="Token de Hugging Face para bajar la voz natural (ver `clonavoz download-models` sin esto: "
+        "explica cómo conseguirlo). También se puede pasar en la variable HF_TOKEN. No se guarda.",
+    )
+    p_download.add_argument(
+        "--whisper", nargs="+", default=None,
+        help="Modelos de Whisper a descargar (por defecto: tiny y base, y small si algún idioma no lo entiende "
+        "Parakeet, el reconocimiento más preciso que se baja para español, inglés y otros 23 idiomas)",
+    )
+    p_download.set_defaults(func=_cmd_download_models)
 
     p_run = sub.add_parser("run", help="Inicia la traducción de voz en vivo")
     p_run.add_argument("--source-lang", required=True, help="Idioma en el que hablas, ej: es")
     p_run.add_argument("--target-lang", required=True, help="Idioma que escucharán, ej: en")
     p_run.add_argument("--voice-sample", help="Ruta al .wav de referencia de tu voz")
-    p_run.add_argument("--input-device", type=int, default=None, help="Índice del micrófono de entrada")
+    p_run.add_argument("--input-device", type=_device, default=None, help=_INPUT_DEVICE_HELP)
     p_run.add_argument("--output-device", type=int, default=None, help="Índice del micrófono virtual de salida")
+    p_run.add_argument(
+        "--to-speakers",
+        action="store_true",
+        help="Escuchar la traducción en tus auriculares en vez de mandarla a una videollamada "
+        "(no necesita micrófono virtual)",
+    )
     p_run.add_argument(
         "--profile",
         default="auto",
         choices=["auto", "low", "medium", "high"],
         help="Perfil de rendimiento. 'auto' detecta tu hardware.",
     )
+    p_run.add_argument(
+        "--voice-engine",
+        default="auto",
+        choices=["auto", "natural", "openvoice", "rapida", "xtts"],
+        help="Cómo se genera tu voz: 'natural' (Pocket TTS: la más parecida a vos y natural; se usa sola "
+        "si está descargada), 'openvoice' (liviano, en ~37 idiomas), 'rapida' (una voz de tono parecido "
+        "al tuyo, sin clonar: para PCs muy lentas; 'auto' la elige sola si tu voz clonada no llega a "
+        "tiempo) o 'xtts' (XTTS-v2, pesado, para GPU).",
+    )
     p_run.set_defaults(func=_cmd_run)
 
+    def add_listen_options(sub_parser: argparse.ArgumentParser) -> None:
+        sub_parser.add_argument(
+            "--their-langs", nargs="+", default=["en", "pt"],
+            help="Idiomas en que es más probable que te hablen (se reconocen mejor). Cualquier otro también se "
+            "reconoce si se nota claramente. Por defecto: en pt",
+        )
+        sub_parser.add_argument(
+            "--their-voice", default="parecida", choices=["parecida", "clonada", "ninguna"],
+            help="Con qué voz escuchás lo que te dicen: 'parecida' (de hombre o de mujer según su tono, por "
+            "defecto), 'clonada' (la suya, SOLO con su permiso) o 'ninguna' (solo el texto en pantalla)",
+        )
+        sub_parser.add_argument(
+            "--permiso-clonar", action="store_true",
+            help="Confirmás que la otra persona te dio permiso para clonar su voz (con --their-voice clonada)",
+        )
+        sub_parser.add_argument(
+            "--call-device", type=int, default=None,
+            help="Dispositivo de entrada con el audio de la llamada. Por defecto, en Windows se escucha todo lo "
+            "que suena en la computadora menos clonavoz (en Linux/macOS hay que indicarlo)",
+        )
+        sub_parser.add_argument("--profile", default="auto", choices=["auto", "low", "medium", "high"])
+
+    p_listen = sub.add_parser(
+        "escuchar", aliases=["listen"],
+        help="Te traduce lo que te dicen en la llamada (o un video): texto en pantalla y voz en tus auriculares",
+    )
+    p_listen.add_argument("--listen-lang", default="es", help="Idioma en que querés escucharlo. Por defecto: es")
+    p_listen.add_argument(
+        "--output-device", type=int, default=None, help="Dónde suena (por defecto, la salida predeterminada)"
+    )
+    add_listen_options(p_listen)
+    p_listen.set_defaults(func=_cmd_listen)
+
+    p_conv = sub.add_parser(
+        "conversar", aliases=["converse"],
+        help="Conversación en las dos direcciones: tu voz traducida a la llamada y lo que te dicen, traducido para vos",
+    )
+    p_conv.add_argument("--source-lang", default="es", help="Idioma en que hablás. Por defecto: es")
+    p_conv.add_argument(
+        "--target-lang", default="auto",
+        help="En qué idioma te escuchan: 'auto' (por defecto) = el idioma en que te hablen; o uno fijo, ej. en",
+    )
+    p_conv.add_argument(
+        "--start-lang", default="en", help="Con 'auto', el idioma hasta que te hablen. Por defecto: en"
+    )
+    p_conv.add_argument(
+        "--listen-lang", default=None, help="En qué idioma escuchás lo que te dicen (por defecto, el tuyo)"
+    )
+    p_conv.add_argument("--voice-sample", help="Ruta al .wav de referencia de tu voz")
+    p_conv.add_argument("--input-device", type=_device, default=None, help=_INPUT_DEVICE_HELP)
+    p_conv.add_argument("--output-device", type=int, default=None, help="Índice del micrófono virtual (salida)")
+    p_conv.add_argument(
+        "--headphones-device", type=int, default=None, help="Dónde escuchás (por defecto, la salida predeterminada)"
+    )
+    p_conv.add_argument(
+        "--voice-engine", default="auto", choices=["auto", "natural", "openvoice", "rapida", "xtts"],
+        help="Cómo se genera tu voz (ver `clonavoz run --help`)",
+    )
+    add_listen_options(p_conv)
+    p_conv.set_defaults(func=_cmd_converse)
+
     return parser
+
+
+def _exit_with_window() -> None:
+    """Si a clonavoz lo abrió su ventana (clonavoz.exe pasa su número de proceso
+    en CLONAVOZ_PADRE) y la ventana se cierra de golpe (ej. desde el
+    Administrador de tareas), no seguir traduciendo escondido."""
+    parent = os.environ.get("CLONAVOZ_PADRE", "")
+    if not (_WINDOWS and parent.isdigit()):
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    synchronize, infinite = 0x00100000, 0xFFFFFFFF
+    handle = kernel32.OpenProcess(synchronize, False, int(parent))
+    if not handle:
+        return
+
+    def wait() -> None:
+        kernel32.WaitForSingleObject(handle, infinite)
+        os._exit(1)
+
+    threading.Thread(target=wait, daemon=True, name="ventana").start()
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    _exit_with_window()
     args.func(args)
 
 

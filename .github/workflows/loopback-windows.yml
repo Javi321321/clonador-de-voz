@@ -1,0 +1,40 @@
+# Prueba rápida, en Windows de verdad, de escuchar lo que suena en la
+# computadora (la llamada) sin escuchar a clonavoz (ver src/clonavoz/call_audio.py).
+name: Audio de la llamada (Windows)
+
+on:
+  push:
+    paths:
+      - "src/clonavoz/call_audio.py"
+      - "src/clonavoz/audio_io.py"
+      - "portable/loopback_test.py"
+      - ".github/workflows/loopback-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loopback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependencias mínimas
+        run: python -m pip install numpy scipy sounddevice soundcard pyaudiowpatch
+
+      - name: Encender el audio de Windows e instalar VB-CABLE (la única salida de audio de la máquina)
+        shell: pwsh
+        run: ./portable/instalar_vbcable_ci.ps1
+
+      - name: Grabar lo que suena, con y sin clonavoz
+        run: python portable/loopback_test.py

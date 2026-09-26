@@ -8,14 +8,26 @@ dependencies = [
     "sounddevice>=0.4.6",
     "soundfile>=0.12.1",
     "numpy>=1.24",
+    "scipy>=1.10",
     "psutil>=5.9.0",
     "torch>=2.1.0",
-    "torchaudio>=2.1.0",
     "faster-whisper>=1.0.0",
+    "ctranslate2>=4.0.0",
+    "huggingface_hub>=0.23.0",
     "transformers>=4.40.0,<5.0.0",
     "sentencepiece>=0.2.0",
+    "piper-tts>=1.3.0",
+    "silero-vad>=6.0",
+    "pocket-tts>=3.3.0",
+    "onnx-asr>=0.12.0",
+    "vosk>=0.3.45",
+]
+
+[project.optional-dependencies]
+# Motor de voz XTTS-v2: recomendado solo con GPU NVIDIA (ver requirements-xtts.txt).
+xtts = [
+    "torchaudio>=2.1.0",
     "coqui-tts[codec]>=0.24.0",
-    "piper-tts>=1.2.0",
 ]
 
 [project.scripts]
@@ -27,3 +39,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# Las pruebas de portable/ necesitan Windows real y se corren aparte (CI).
+testpaths = ["tests"]

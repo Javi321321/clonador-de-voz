@@ -3,7 +3,9 @@
 La idea es que el mismo programa se ajuste solo: en una notebook gamer con
 GPU aprovecha CUDA y modelos más grandes/precisos, y en una laptop de
 bajos recursos usa modelos livianos en CPU para poder mantenerse en tiempo
-real sin trabarse.
+real sin trabarse. Sin GPU, la voz clonada sale del motor liviano
+(Piper + OpenVoice, ver voice_clone.py): XTTS-v2 en CPU tarda varios
+segundos por frase, y en una computadora modesta, mucho más.
 """
 from __future__ import annotations
 
@@ -12,9 +14,7 @@ import dataclasses
 import psutil
 import torch
 
-# Único modelo abierto que hoy clona timbre de voz en ~17 idiomas con buena
-# calidad. Los perfiles varían la velocidad/precisión de ASR y traducción,
-# no el modelo de clonación (no hay una alternativa liviana equivalente).
+# Modelo de clonación del motor "xtts" (solo tiene sentido con GPU).
 XTTS_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
 
 
@@ -26,6 +26,7 @@ class PerformanceProfile:
     tts_model: str
     max_utterance_seconds: float
     device: str
+    voice_engine: str  # "openvoice" (liviano) o "xtts" (necesita GPU para ir rápido)
 
 
 PROFILES: dict[str, PerformanceProfile] = {
@@ -36,6 +37,7 @@ PROFILES: dict[str, PerformanceProfile] = {
         tts_model=XTTS_MODEL,
         max_utterance_seconds=3.0,
         device="cpu",
+        voice_engine="openvoice",
     ),
     "medium": PerformanceProfile(
         name="medium",
@@ -44,6 +46,7 @@ PROFILES: dict[str, PerformanceProfile] = {
         tts_model=XTTS_MODEL,
         max_utterance_seconds=5.0,
         device="cpu",
+        voice_engine="openvoice",
     ),
     "high": PerformanceProfile(
         name="high",
@@ -52,6 +55,7 @@ PROFILES: dict[str, PerformanceProfile] = {
         tts_model=XTTS_MODEL,
         max_utterance_seconds=8.0,
         device="cuda",
+        voice_engine="xtts",
     ),
 }
 
@@ -101,9 +105,11 @@ def get_profile(name: str | None) -> PerformanceProfile:
         if accelerator is None:
             print(
                 f"[clonavoz] Aviso: el perfil '{name}' pide GPU pero no se detectó "
-                "ninguna disponible. Usando CPU (será más lento)."
+                "ninguna disponible. Usando CPU (será más lento) y el motor de voz liviano."
             )
-            profile = dataclasses.replace(profile, device="cpu")
+            profile = dataclasses.replace(profile, device="cpu", voice_engine="openvoice")
         else:
-            profile = dataclasses.replace(profile, device=accelerator)
+            # XTTS solo es rápido con CUDA; con Apple Silicon (mps) va el motor liviano.
+            engine = profile.voice_engine if accelerator == "cuda" else "openvoice"
+            profile = dataclasses.replace(profile, device=accelerator, voice_engine=engine)
     return profile

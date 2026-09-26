@@ -1,0 +1,246 @@
+# Arma la versión portable de Windows (sin GPU), la prueba en una máquina
+# Windows limpia y deja el .zip para descargar desde la pestaña "Actions".
+name: Versión portable (Windows)
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "portable/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - ".github/workflows/portable-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Armar la carpeta portable y clonavoz.exe
+        run: python portable/build_windows.py --out dist --exe
+
+      - name: Anotar la hora antes de usar la app
+        shell: pwsh
+        run: (Get-Date).ToUniversalTime().ToString("o") | Out-File -Encoding ascii "$env:RUNNER_TEMP\antes.txt"
+
+      - name: Probar los lanzadores sin el Python del sistema
+        shell: cmd
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          call dist\clonavoz-portable\clonavoz.bat --help || exit /b 1
+          call dist\clonavoz-portable\clonavoz.bat languages || exit /b 1
+          call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
+
+      - name: VB-CABLE viene incluido (paquete oficial) y el menú sabe si falta
+        shell: pwsh
+        run: |
+          $zip = "dist\clonavoz-portable\vbcable\VBCABLE_Driver_Pack45.zip"
+          if (-not (Test-Path $zip)) { throw "falta el paquete de VB-CABLE" }
+          "SHA256 del paquete incluido: $((Get-FileHash -Algorithm SHA256 $zip).Hash)"
+          if (-not (Test-Path "dist\clonavoz-portable\Abrir clonavoz.exe")) { throw "falta la ventana en la carpeta" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Verificar
+          if ($LASTEXITCODE -ne 1) { throw "en esta máquina no está instalado y dijo otra cosa (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Predeterminados
+          if ($LASTEXITCODE -ne 0) { throw "no se pudieron leer los dispositivos predeterminados" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -UsarCable
+          if ($LASTEXITCODE -ne 1) { throw "sin VB-CABLE tenía que avisar que no pudo (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Restaurar
+          if ($LASTEXITCODE -ne 0) { throw "sin nada que volver atrás tenía que salir bien (código $LASTEXITCODE)" }
+
+      - name: El menú de Iniciar.bat abre y sale con la opción 0
+        shell: cmd
+        timeout-minutes: 2
+        env:
+          CLONAVOZ_SIN_DESCARGA: "1"
+        run: |
+          echo 0| call dist\clonavoz-portable\Iniciar.bat || exit /b 1
+
+      - name: clonavoz.exe se instala solo en su carpeta, como en un pendrive, y abre la ventana
+        shell: cmd
+        timeout-minutes: 15
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          mkdir "%RUNNER_TEMP%\pendrive"
+          copy dist\clonavoz.exe "%RUNNER_TEMP%\pendrive\" > nul
+          rem Es un programa de ventana: lo que cuenta sale solo si se lo redirige a un archivo.
+          "%RUNNER_TEMP%\pendrive\clonavoz.exe" --solo-instalar > "%RUNNER_TEMP%\instalar.txt"
+          set "CODIGO=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\instalar.txt"
+          if not "%CODIGO%"=="0" exit /b 1
+          type "%RUNNER_TEMP%\pendrive\clonavoz\version.txt" || exit /b 1
+          call "%RUNNER_TEMP%\pendrive\clonavoz\clonavoz.bat" --help > nul || exit /b 1
+          if not exist "%RUNNER_TEMP%\pendrive\clonavoz\Abrir clonavoz.exe" exit /b 1
+          mkdir "%RUNNER_TEMP%\ventana"
+          "%RUNNER_TEMP%\pendrive\clonavoz.exe" --prueba --captura "%RUNNER_TEMP%\ventana\ventana.png" > "%RUNNER_TEMP%\ventana\ventana.txt"
+          set "CODIGO=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\ventana\ventana.txt"
+          if not "%CODIGO%"=="0" exit /b 1
+          findstr /c:"VENTANA: abierta" "%RUNNER_TEMP%\ventana\ventana.txt" > nul || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ventana-windows
+          path: ${{ runner.temp }}/ventana
+          if-no-files-found: warn
+
+      - name: Traducir y clonar una voz de punta a punta (sin micrófono)
+        shell: cmd
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          set "CLONAVOZ_HOME=%RUNNER_TEMP%\prueba"
+          set "HF_HOME=%RUNNER_TEMP%\prueba\modelos"
+          set "PYTHONNOUSERSITE=1"
+          set "PYTHONUTF8=1"
+          dist\clonavoz-portable\python\python.exe -m clonavoz download-models --languages es en pt || exit /b 1
+          dist\clonavoz-portable\python\python.exe portable\smoke_test.py || exit /b 1
+        env:
+          # Opcional: con un token de Hugging Face que aceptó las condiciones de
+          # kyutai/pocket-tts, se prueba también la voz natural clonando la voz.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+      - name: Ver qué dejó la app en la carpeta del usuario de Windows (debería ser nada)
+        shell: pwsh
+        run: |
+          $antes = [datetime]::Parse((Get-Content "$env:RUNNER_TEMP\antes.txt")).ToUniversalTime()
+          $nuevos = Get-ChildItem -Path $env:USERPROFILE -Recurse -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTimeUtc -gt $antes -and $_.FullName -notmatch '\\AppData\\Local\\Temp\\' }
+          if ($nuevos) { $nuevos | ForEach-Object { "NUEVO: $($_.FullName)" } } else { "Nada nuevo en $env:USERPROFILE" }
+
+      - name: Comprimir
+        shell: cmd
+        run: 7z a -tzip -mx=5 dist\clonavoz-portable-windows-x64.zip .\dist\clonavoz-portable > nul
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clonavoz-portable-windows-x64
+          path: dist/clonavoz-portable-windows-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clonavoz-exe-windows-x64
+          path: dist/clonavoz.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  audio:
+    # Prueba con audio de verdad. Estas máquinas no tienen placa de sonido: se
+    # instala VB-CABLE, la prueba le "habla" en español como si fuera tu
+    # micrófono y graba lo que escucharía Zoom, para verificar que llega la
+    # traducción en inglés (ver portable/audio_test.py).
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Armar la carpeta portable
+        run: python portable/build_windows.py --out dist
+
+      - name: Encender el audio de Windows e instalar VB-CABLE
+        shell: pwsh
+        run: ./portable/instalar_vbcable_ci.ps1
+
+      - name: El menú detecta VB-CABLE y maneja los dispositivos predeterminados
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Verificar
+          if ($LASTEXITCODE -ne 0) { throw "no detectó VB-CABLE instalado (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Predeterminados
+          if ($LASTEXITCODE -ne 0) { throw "no se pudieron leer ni volver a poner los predeterminados" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -UsarCable
+          if ($LASTEXITCODE -ne 0) { throw "no pudo poner CABLE Output como micrófono predeterminado (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Restaurar
+          if ($LASTEXITCODE -ne 0) { throw "no pudo volver al micrófono de antes (código $LASTEXITCODE)" }
+
+      - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
+        shell: cmd
+        run: call dist\clonavoz-portable\clonavoz.bat download-models --languages es en pt || exit /b 1
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+      - name: Dispositivos que ve clonavoz
+        shell: cmd
+        run: call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
+
+      - name: Probar con audio real por VB-CABLE (micrófono, test-audio, enroll y run)
+        shell: cmd
+        timeout-minutes: 30
+        env:
+          PYTHONUTF8: "1"
+          PYTHONNOUSERSITE: "1"
+        run: dist\clonavoz-portable\python\python.exe portable\audio_test.py dist\clonavoz-portable "%RUNNER_TEMP%\grabaciones" || exit /b 1
+
+      - name: Como en una PC con problemas, las dos puntas del cable quedan silenciadas
+        shell: powershell
+        run: |
+          Add-Type -Path dist\clonavoz-portable\AudioDefaults.cs
+          foreach ($flow in 0, 1) {
+            $id = [ClonavozAudio.Defaults]::FindCable($flow)
+            if (-not [ClonavozAudio.Defaults]::SetMute($id, $true)) { throw "no se pudo silenciar $id" }
+            if ([ClonavozAudio.Defaults]::IsMuted($id) -ne $true) { throw "no quedó silenciado: $id" }
+            "Silenciado: $([ClonavozAudio.Defaults]::Name($id))"
+          }
+
+      - name: "La ventana: si Windows no deja usar el micrófono, lo avisa y no arranca"
+        # pwsh (PowerShell 7) lee bien las tildes del script; Windows PowerShell 5.1 no.
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $key = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged"
+          $out = "$env:RUNNER_TEMP\grabaciones\ventana_sin_permiso.txt"
+          Set-ItemProperty -Path $key -Name Value -Value Deny
+          try {
+            $p = Start-Process -FilePath "dist\clonavoz-portable\Abrir clonavoz.exe" -ArgumentList "--prueba-activar" -RedirectStandardOutput $out -Wait -PassThru
+            Get-Content -Encoding UTF8 $out
+            if ($p.ExitCode -ne 1) { throw "no tenía que arrancar (código $($p.ExitCode))" }
+            if (-not (Select-String -Path $out -Encoding UTF8 -SimpleMatch "no deja usar el micrófono")) { throw "no lo avisó" }
+          } finally {
+            Set-ItemProperty -Path $key -Name Value -Value Allow
+          }
+
+      - name: "La ventana: ACTIVAR arregla el audio, arranca la conversación sola y DETENER la para"
+        shell: cmd
+        timeout-minutes: 10
+        run: |
+          rem Con los modelos y la voz que dejó la prueba anterior. Contesta "no" a todo lo que pregunta.
+          "dist\clonavoz-portable\Abrir clonavoz.exe" --prueba-activar --captura "%RUNNER_TEMP%\grabaciones\ventana_activa.png" > "%RUNNER_TEMP%\grabaciones\ventana_activa.txt"
+          set "CODIGO=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\grabaciones\ventana_activa.txt"
+          if not "%CODIGO%"=="0" exit /b 1
+          findstr /c:"ACTIVO" "%RUNNER_TEMP%\grabaciones\ventana_activa.txt" > nul || exit /b 1
+          findstr /c:"estaba silenciado" "%RUNNER_TEMP%\grabaciones\ventana_activa.txt" > nul || exit /b 1
+
+      - name: ACTIVAR dejó el cable sin silenciar
+        shell: powershell
+        run: |
+          Add-Type -Path dist\clonavoz-portable\AudioDefaults.cs
+          foreach ($flow in 0, 1) {
+            $id = [ClonavozAudio.Defaults]::FindCable($flow)
+            if ([ClonavozAudio.Defaults]::IsMuted($id) -ne $false) { throw "sigue silenciado (o no se sabe): $id" }
+          }
+          "Las dos puntas del cable quedaron sin silenciar."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prueba-audio-real-grabaciones
+          path: ${{ runner.temp }}/grabaciones
+          if-no-files-found: warn

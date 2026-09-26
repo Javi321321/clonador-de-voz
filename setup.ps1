@@ -20,15 +20,18 @@ python -m pip install --upgrade pip
 
 $hasNvidia = $null -ne (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
 if ($hasNvidia) {
-    Write-Host "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA..."
+    Write-Host "GPU NVIDIA detectada: instalando PyTorch con soporte CUDA y el motor de voz XTTS-v2..."
     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 } else {
-    Write-Host "Sin GPU NVIDIA detectada: instalando PyTorch para CPU..."
-    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+    Write-Host "Sin GPU NVIDIA detectada: instalando PyTorch para CPU y el motor de voz liviano..."
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
 }
 
 pip install -r requirements.txt
 pip install -e .
+if ($hasNvidia) {
+    pip install -r requirements-xtts.txt
+}
 
 Write-Host ""
 Write-Host "Listo. En cada terminal nueva, activa el entorno con:"
@@ -40,6 +43,8 @@ Write-Host "  clonavoz enroll --seconds 15"
 Write-Host "  clonavoz run --source-lang es --target-lang en"
 Write-Host ""
 Write-Host "Antes de 'run', instala VB-CABLE si no lo tienes: https://vb-audio.com/Cable/"
-Write-Host "IMPORTANTE: tambien necesitas FFmpeg instalado (ver seccion 'Instalar FFmpeg" -ForegroundColor Yellow
-Write-Host "en Windows' del README) o la sintesis de voz va a fallar con un error de" -ForegroundColor Yellow
-Write-Host "torchcodec/libtorchcodec." -ForegroundColor Yellow
+if ($hasNvidia) {
+    Write-Host "IMPORTANTE: el motor XTTS-v2 necesita FFmpeg instalado (ver seccion 'Instalar FFmpeg" -ForegroundColor Yellow
+    Write-Host "en Windows' del README) o la sintesis de voz va a fallar con un error de" -ForegroundColor Yellow
+    Write-Host "torchcodec/libtorchcodec. Sin FFmpeg, usa: clonavoz run ... --voice-engine openvoice" -ForegroundColor Yellow
+}

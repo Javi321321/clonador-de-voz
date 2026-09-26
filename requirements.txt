@@ -1,24 +1,24 @@
-# Instala primero PyTorch según tu hardware (ver README), luego el resto.
-# NOTA: con PyTorch 2.9+ (obligatorio en Python 3.13+/3.14, no hay builds
-# anteriores para esas versiones de Python), torchaudio necesita la librería
-# torchcodec para cargar/escribir audio. En Windows, torchcodec a su vez
-# necesita FFmpeg instalado como DLLs sueltas — ver la sección de
-# instalación de FFmpeg en el README antes de correr `clonavoz run`.
+# Instala primero PyTorch según tu hardware (ver README), luego el resto:
 #
-#   CPU (recomendado en laptops de bajos recursos):
-#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-#
-#   GPU NVIDIA (recomendado en notebooks gamer con CUDA):
-#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install -r requirements.txt
+#
+# Esto instala los motores de voz natural (Pocket TTS; sus pesos se bajan con
+# `clonavoz download-models`, ver README) y liviano (Piper + OpenVoice). El
+# motor XTTS-v2 es opcional: requirements-xtts.txt.
 
 sounddevice>=0.4.6
 soundfile>=0.12.1
 numpy>=1.24
+scipy>=1.10
 psutil>=5.9.0
 faster-whisper>=1.0.0
+ctranslate2>=4.0.0
+huggingface_hub>=0.23.0
 transformers>=4.40.0,<5.0.0
 sentencepiece>=0.2.0
-coqui-tts[codec]>=0.24.0
-piper-tts>=1.2.0
+piper-tts>=1.3.0
+silero-vad>=6.0
+pocket-tts>=3.3.0
+onnx-asr>=0.12.0
+vosk>=0.3.45

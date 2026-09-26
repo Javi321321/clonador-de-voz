@@ -1,0 +1,15 @@
+# Motor de voz XTTS-v2 (opcional; recomendado solo con GPU NVIDIA, en CPU es
+# varias veces más lento que el motor liviano). Instálalo después de
+# requirements.txt, con el PyTorch de CUDA:
+#
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements-xtts.txt
+#
+# NOTA: con PyTorch 2.9+ (obligatorio en Python 3.13+/3.14, no hay builds
+# anteriores para esas versiones de Python), torchaudio necesita la librería
+# torchcodec para cargar/escribir audio. En Windows, torchcodec a su vez
+# necesita FFmpeg instalado como DLLs sueltas — ver la sección de
+# instalación de FFmpeg en el README.
+
+torchaudio>=2.1.0
+coqui-tts[codec]>=0.24.0
