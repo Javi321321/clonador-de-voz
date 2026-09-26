@@ -26,6 +26,7 @@ Con los comandos de la carpeta portable (clonavoz.bat), como el usuario:
      como si fuera la llamada: en estas máquinas no se puede grabar lo que
      suena, ver loopback_test.py) y la traducción al español tiene que
      verse en pantalla y sonar.
+  6. `conversar`: arrancan las dos direcciones a la vez.
 
 Uso: python audio_test.py <carpeta clonavoz-portable> <carpeta para las grabaciones>
 """
@@ -422,6 +423,28 @@ def step_listen(cable_in, cable_out, recognizer) -> list[float]:
     return delays
 
 
+def step_converse(cable_in, cable_out) -> None:
+    """conversar: arrancan las dos direcciones a la vez (con un solo cable no se
+    puede probar más que eso: se escucharían entre ellas)."""
+    print("\n== 6) conversar: las dos direcciones a la vez ==", flush=True)
+    proc = Clonavoz(
+        "conversar", "--source-lang", "es", "--target-lang", "auto",
+        "--input-device", cable_out.index, "--call-device", cable_out.index,
+        "--output-device", cable_in.index, "--headphones-device", cable_in.index,
+    )
+    try:
+        proc.wait_for(r"^Listo: vos hablás en español", timeout=900)
+        check("te escuchan en el idioma en que te hablen" in proc.output, "te escuchan en el idioma en que te hablan")
+        time.sleep(3)
+        check(proc._proc.poll() is None, "sigue funcionando")
+    except AssertionError as exc:
+        check(False, str(exc))
+    finally:
+        proc.kill()
+    check("Error" not in proc.output, "sin errores al arrancar")
+    proc.check_clean_console()
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"PortAudio: {sd.get_portaudio_version()[1]}")
@@ -449,6 +472,7 @@ def main() -> None:
             check(False, str(exc))
     delays = [step_run(i, phrase, cable_in, cable_out, recognizer) for i, phrase in enumerate(PHRASES, 1)]
     listen_delays = step_listen(cable_in, cable_out, recognizer)
+    step_converse(cable_in, cable_out)
 
     print()
     measured = [d for d in delays if d is not None]
