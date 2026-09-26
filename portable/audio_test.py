@@ -22,6 +22,10 @@ Con los comandos de la carpeta portable (clonavoz.bat), como el usuario:
   4. `run`: traducción en vivo de español a inglés, una vez por frase. Se
      transcribe lo que llega a la "videollamada", se compara con la
      traducción y se mide la demora.
+  5. `escuchar`: alguien te habla en inglés y en portugués (por el cable,
+     como si fuera la llamada: en estas máquinas no se puede grabar lo que
+     suena, ver loopback_test.py) y la traducción al español tiene que
+     verse en pantalla y sonar.
 
 Uso: python audio_test.py <carpeta clonavoz-portable> <carpeta para las grabaciones>
 """
@@ -361,6 +365,63 @@ def step_run(number: int, phrase: str, cable_in, cable_out, recognizer) -> float
     return delay
 
 
+THEIR_PHRASES = [
+    ("en", "inglés", "Hi! I wanted to ask you about the meeting tomorrow."),
+    ("pt", "portugués", "Oi, tudo bem? Você pode me mandar o contrato até amanhã?"),
+]
+
+
+def step_listen(cable_in, cable_out, recognizer) -> list[float]:
+    """escuchar: alguien te habla en inglés y en portugués (por el cable, como si
+    fuera la llamada) y la traducción al español tiene que sonar (en el mismo
+    cable: acá es "tus auriculares") y verse en pantalla."""
+    print("\n== 5) escuchar: te hablan en inglés y en portugués ==", flush=True)
+    delays = []
+    proc = Clonavoz(
+        "escuchar", "--call-device", cable_out.index, "--output-device", cable_in.index, "--their-voice", "parecida"
+    )
+    try:
+        proc.wait_for("Escuchando", timeout=900)
+        for code, name, phrase in THEIR_PHRASES:
+            audio, rate = PiperSynthesizer(speaker_pitch_hz=200).synthesize(phrase, code)
+            sf.write(str(OUT / f"5_te_dicen_{code}.wav"), audio, rate)
+            with Recorder(cable_out.index) as call:
+                time.sleep(1.0)
+                start = time.monotonic()
+                play(cable_in.index, audio, rate)
+                end = time.monotonic()
+                proc.wait_for(rf"Te dicen \({name}\)", timeout=120, after=start)
+                span = None
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    span = sound_span(call.audio(), call.seconds(end) + 0.3)
+                    if span and span[2]:
+                        break
+                    time.sleep(0.1)
+            recording = call.audio()
+            sf.write(str(OUT / f"5_traduccion_de_{code}.wav"), recording, RATE)
+            said = proc.texts(rf"^\s*Te dicen \({name}\) > ", start)[:1]
+            translated = proc.texts(r"^\s*es > ", start)[:1]
+            check(bool(said) and overlap(phrase, said[0]) >= 0.5, f"entendió lo que le dijeron en {name}: {said}")
+            check(bool(translated), f"lo tradujo al español: {translated}")
+            if not check(span is not None, f"la traducción de lo que dijeron en {name} sonó"):
+                continue
+            onset, finish, _ = span
+            piece = recording[max(0, int(onset * RATE) - RATE // 5) : int(finish * RATE) + RATE // 5]
+            heard = recognizer.transcribe(piece, "es")
+            match = overlap(" ".join(translated), heard)
+            print(f"  Se escucha: {heard!r}")
+            check(match >= 0.5, f"se entiende la traducción al español ({match:.0%} de las palabras)")
+            delays.append(onset - call.seconds(end))
+            print(f"  Demora: {delays[-1]:.1f} s desde que terminó de hablar hasta que empezó a sonar")
+    except AssertionError as exc:
+        check(False, str(exc))
+    finally:
+        proc.kill()
+    proc.check_clean_console()
+    return delays
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"PortAudio: {sd.get_portaudio_version()[1]}")
@@ -387,11 +448,14 @@ def main() -> None:
         except AssertionError as exc:  # un paso trabado no impide probar los demás
             check(False, str(exc))
     delays = [step_run(i, phrase, cable_in, cable_out, recognizer) for i, phrase in enumerate(PHRASES, 1)]
+    listen_delays = step_listen(cable_in, cable_out, recognizer)
 
     print()
     measured = [d for d in delays if d is not None]
     if measured:
         print("Demora de cada frase: " + ", ".join(f"{d:.1f} s" for d in measured))
+    if listen_delays:
+        print("Demora de lo que te dicen: " + ", ".join(f"{d:.1f} s" for d in listen_delays))
     if FAILURES:
         print(f"FALLARON {len(FAILURES)} verificaciones:")
         for failure in FAILURES:

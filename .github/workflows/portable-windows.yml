@@ -26,8 +26,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Armar la carpeta portable
-        run: python portable/build_windows.py --out dist
+      - name: Armar la carpeta portable y clonavoz.exe
+        run: python portable/build_windows.py --out dist --exe
 
       - name: Anotar la hora antes de usar la app
         shell: pwsh
@@ -44,8 +44,24 @@ jobs:
       - name: El menú de Iniciar.bat abre y sale con la opción 0
         shell: cmd
         timeout-minutes: 2
+        env:
+          CLONAVOZ_SIN_DESCARGA: "1"
         run: |
           echo 0| call dist\clonavoz-portable\Iniciar.bat || exit /b 1
+
+      - name: clonavoz.exe se instala solo en su carpeta, como en un pendrive, y abre el menú
+        shell: cmd
+        timeout-minutes: 15
+        env:
+          CLONAVOZ_SIN_DESCARGA: "1"
+        run: |
+          set "PATH=%SystemRoot%\System32;%SystemRoot%"
+          mkdir "%RUNNER_TEMP%\pendrive"
+          copy dist\clonavoz.exe "%RUNNER_TEMP%\pendrive\" > nul
+          "%RUNNER_TEMP%\pendrive\clonavoz.exe" --solo-instalar || exit /b 1
+          type "%RUNNER_TEMP%\pendrive\clonavoz\version.txt" || exit /b 1
+          call "%RUNNER_TEMP%\pendrive\clonavoz\clonavoz.bat" --help > nul || exit /b 1
+          echo 0| "%RUNNER_TEMP%\pendrive\clonavoz.exe" || exit /b 1
 
       - name: Traducir y clonar una voz de punta a punta (sin micrófono)
         shell: cmd
@@ -55,7 +71,7 @@ jobs:
           set "HF_HOME=%RUNNER_TEMP%\prueba\modelos"
           set "PYTHONNOUSERSITE=1"
           set "PYTHONUTF8=1"
-          dist\clonavoz-portable\python\python.exe -m clonavoz download-models --languages es en || exit /b 1
+          dist\clonavoz-portable\python\python.exe -m clonavoz download-models --languages es en pt || exit /b 1
           dist\clonavoz-portable\python\python.exe portable\smoke_test.py || exit /b 1
         env:
           # Opcional: con un token de Hugging Face que aceptó las condiciones de
@@ -80,6 +96,15 @@ jobs:
           path: dist/clonavoz-portable-windows-x64.zip
           if-no-files-found: error
           compression-level: 0
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clonavoz-exe-windows-x64
+          path: dist/clonavoz.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
 
   audio:
     # Prueba con audio de verdad. Estas máquinas no tienen placa de sonido: se
@@ -104,7 +129,7 @@ jobs:
 
       - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
         shell: cmd
-        run: call dist\clonavoz-portable\clonavoz.bat download-models --languages es en || exit /b 1
+        run: call dist\clonavoz-portable\clonavoz.bat download-models --languages es en pt || exit /b 1
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
 

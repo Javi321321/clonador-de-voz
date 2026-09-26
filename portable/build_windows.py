@@ -10,8 +10,14 @@ de voz y los modelos: nada se guarda en la computadora donde lo ejecutas.
 Uso (desde la raíz del repositorio, con Python 3.10+ y pip):
 
     python portable/build_windows.py                    # arma dist/clonavoz-portable
-    python portable/build_windows.py --models es en     # además descarga los modelos
+    python portable/build_windows.py --models es en pt  # además descarga los modelos
     python portable/build_windows.py --zip              # y lo comprime
+    python portable/build_windows.py --exe              # y arma dist/clonavoz.exe
+
+`--exe` arma un solo archivo, clonavoz.exe, con todo adentro: se lleva en el
+pendrive y la primera vez que se abre se instala en la carpeta "clonavoz" al
+lado (ver launcher/clonavoz.cs). Se compila con el compilador de C# que trae
+Windows (.NET Framework 4), o con `mcs` (Mono) en Linux o macOS.
 
 Se puede correr en Linux o macOS para armar el paquete desde otro sistema
 (se bajan los paquetes de Windows directamente), pero las DLLs de Visual C++
@@ -91,6 +97,58 @@ def _copy_vc_runtime(python_dir: Path) -> None:
             print(f"  + {name}")
 
 
+def _version() -> str:
+    """Identifica esta versión (el .exe compara con la que está instalada)."""
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit = ""
+    import time
+
+    return time.strftime("%Y%m%d-%H%M%S") + (f"-{commit}" if commit else "")
+
+
+def _compile_launcher(out: Path, version: str) -> Path:
+    """Compila launcher/clonavoz.cs con la versión adentro."""
+    source = (Path(__file__).resolve().parent / "launcher" / "clonavoz.cs").read_text(encoding="utf-8")
+    work = out / "launcher"
+    work.mkdir(parents=True, exist_ok=True)
+    cs = work / "clonavoz.cs"
+    cs.write_text(source.replace("__VERSION__", version), encoding="utf-8")
+    exe = work / "clonavoz.exe"
+    references = ["System.IO.Compression.dll", "System.IO.Compression.FileSystem.dll"]
+    windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    frameworks = windir / "Microsoft.NET"
+    candidates = [frameworks / folder / "v4.0.30319" / "csc.exe" for folder in ("Framework64", "Framework")]
+    csc = next((path for path in candidates if path.exists()), None)
+    if csc is not None:
+        _run([str(csc), "/nologo", "/optimize+", f"/out:{exe}", *(f"/r:{r}" for r in references), str(cs)])
+    elif shutil.which("mcs"):
+        _run(["mcs", "-nologo", "-optimize+", f"-out:{exe}", *(f"-r:{r}" for r in references), str(cs)])
+    else:
+        sys.exit("--exe necesita el compilador de C#: el de Windows (.NET Framework 4) o `mcs` (Mono).")
+    return exe
+
+
+def _build_exe(target: Path, out: Path) -> Path:
+    """clonavoz.exe: el lanzador con toda la carpeta portable adentro (un .zip
+    pegado al final, con las posiciones contadas desde el principio del .exe,
+    como lo lee .NET)."""
+    version = _version()
+    launcher = _compile_launcher(out, version)
+    exe = out / "clonavoz.exe"
+    shutil.copy2(launcher, exe)
+    print(f"Armando {exe} (versión {version})...", flush=True)
+    files = sorted(path for path in target.rglob("*") if path.is_file() and path.name != "version.txt")
+    with zipfile.ZipFile(exe, "a", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        for path in files:
+            archive.write(path, path.relative_to(target).as_posix())
+    print(f"Listo: {exe} ({exe.stat().st_size / 1024**3:.2f} GB, {len(files)} archivos)")
+    return exe
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", default=str(ROOT / "dist"), help="Carpeta donde se arma (por defecto: dist)")
@@ -99,6 +157,9 @@ def main() -> None:
         help="Descargar ya los modelos, con las voces de estos idiomas (ej: es en). Solo en Windows.",
     )
     parser.add_argument("--zip", action="store_true", help="Comprimir el resultado en un .zip")
+    parser.add_argument(
+        "--exe", action="store_true", help="Armar también clonavoz.exe: un solo archivo con todo, para el pendrive"
+    )
     args = parser.parse_args()
 
     target = Path(args.out) / "clonavoz-portable"
@@ -137,6 +198,8 @@ def main() -> None:
         print(f"Listo: {archive}")
     else:
         print(f"Listo: {target}")
+    if args.exe:
+        _build_exe(target, Path(args.out))
 
 
 if __name__ == "__main__":

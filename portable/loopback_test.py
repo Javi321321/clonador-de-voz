@@ -72,7 +72,8 @@ def read_path_with_microphone() -> bool:
         try:
             wasapi.open()
             info["format"] = f"{wasapi.rate} Hz, {wasapi.channels} canal(es), {wasapi.dtype.name}"
-            wasapi.read(FrameAssembler(wasapi.rate, wasapi.channels, wasapi.dtype, 512, frames.append, MicStats()), stop)
+            assembler = FrameAssembler(wasapi.rate, wasapi.channels, wasapi.dtype, 512, frames.append, MicStats())
+            wasapi.read(assembler, stop)
         except Exception as exc:  # noqa: BLE001
             info["error"] = exc
         finally:
@@ -101,7 +102,9 @@ def run(exclude: bool, loopback_here: bool) -> None:
     check(stream.excludes_own_audio == exclude, "se abrió en el modo pedido")
     # Control, por otro camino: lo que sale del cable virtual (la salida
     # predeterminada de estas máquinas) tiene que tener los dos tonos.
-    cable = [d["index"] for d in sd.query_devices() if d["max_input_channels"] > 0 and "cable output" in d["name"].lower()]
+    cable = [
+        d["index"] for d in sd.query_devices() if d["max_input_channels"] > 0 and "cable output" in d["name"].lower()
+    ]
     control: list[np.ndarray] = []
     recorder = None
     if cable:
@@ -125,7 +128,8 @@ def run(exclude: bool, loopback_here: bool) -> None:
     elapsed = time.monotonic() - started
     audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.float32)
     seconds = len(audio) / RATE
-    print(f"  grabado: {seconds:.1f} s en {elapsed:.1f} s | pico {20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9)):.0f} dB")
+    peak = 20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9))
+    print(f"  grabado: {seconds:.1f} s en {elapsed:.1f} s | pico {peak:.0f} dB")
     check(seconds > 0.8 * (elapsed - 1.0), "entrega audio (o silencio) todo el tiempo, aunque no suene nada")
     other = tone_db(audio[: split * 512], OTHER_APP)
     own = tone_db(audio[split * 512 :], CLONAVOZ)

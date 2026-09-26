@@ -80,7 +80,7 @@ def _cmd_enroll(args: argparse.Namespace) -> None:
 
 def _cmd_download_models(args: argparse.Namespace) -> None:
     languages = []
-    for code in args.languages:
+    for code in dict.fromkeys(args.languages):
         try:
             languages.append(get_language(code))
         except ValueError as exc:

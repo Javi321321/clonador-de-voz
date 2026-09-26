@@ -115,8 +115,55 @@ def main() -> None:
     assert len(out) / out_rate > 1.0 and np.abs(out).max() > 0.01, "la voz rápida salió vacía"
     _step(f"voz rápida en inglés ({len(out) / out_rate:.1f}s de audio)", t)
 
+    _what_they_say()
     _natural_voice(sample, english)
     print("TODO OK")
+
+
+def _what_they_say() -> None:
+    """Lo que te dicen: portugués por los traductores rápidos, el idioma
+    reconocido solo y la traducción dicha con una voz parecida."""
+    from clonavoz import listen
+    from clonavoz.vad import Utterance
+
+    t = time.perf_counter()
+    for source, target, text in (
+        ("es", "pt", "Hola, ¿cómo estás? Te quería contar algo."),
+        ("pt", "es", "Oi, tudo bem? Você pode me mandar o contrato até amanhã?"),
+        ("en", "pt", "Can we move the meeting to Thursday?"),
+        ("pt", "en", "Você já almoçou?"),
+    ):
+        translator = Translator(get_language(source).nllb_code, get_language(target).nllb_code, pair=(source, target))
+        assert translator.name.startswith("Opus-MT"), f"{source}->{target} sin el traductor rápido: {translator.name}"
+        out = translator.translate(text)
+        assert out, f"{source}->{target}: la traducción salió vacía"
+        print(f"      {translator.name}: {text!r} -> {out!r}")
+    _step("traductores rápidos con portugués", t)
+
+    t = time.perf_counter()
+    pipeline = listen.IncomingPipeline(get_profile("low"), "es", on_message=print)
+    _step(f"lo que te dicen: cargado ({pipeline.asr_name})", t)
+    for code, phrase in (
+        ("en", "Hi! How are you doing today? I wanted to ask you about the meeting."),
+        ("pt", "Oi, tudo bem? Você pode me mandar o contrato até amanhã?"),
+    ):
+        voice, voice_rate = PiperSynthesizer(speaker_pitch_hz=200).synthesize(phrase, code)
+        g = math.gcd(voice_rate, 16000)
+        audio16 = resample_poly(voice, 16000 // g, voice_rate // g).astype(np.float32)
+        heard: list[tuple] = []
+        pipeline.on_transcript = lambda language, text, translated, heard=heard: heard.append(
+            (language, text, translated)
+        )
+        t = time.perf_counter()
+        pipeline._process(Utterance(audio16))
+        assert heard and heard[0][0] == code, f"no reconoció el idioma ({code}): {heard}"
+        assert heard[0][2], f"no tradujo lo que dijo en {code}: {heard}"
+        spoken = []
+        while not pipeline._audio_out_queue.empty():
+            item = pipeline._audio_out_queue.get()
+            spoken.append(len(item[1]) / item[2] if item[0] == "audio" else 0.0)
+        assert sum(spoken) > 0.5, f"la traducción de lo que dijo en {code} no se dijo"
+        _step(f"te dicen ({code}) {heard[0][1]!r} -> {heard[0][2]!r} ({sum(spoken):.1f}s de voz)", t)
 
 
 def _natural_voice(sample, english: str) -> None:

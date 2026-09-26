@@ -1,32 +1,47 @@
 ﻿clonavoz portable — traductor de voz en vivo con tu propia voz
 ==============================================================
 
-Funciona en cualquier Windows 10/11 de 64 bits sin instalar nada: podés llevar
-esta carpeta en un pendrive. No necesita tarjeta gráfica.
+Funciona en cualquier Windows 10/11 de 64 bits sin instalar nada: todo va en
+el pendrive. No necesita tarjeta gráfica.
 
 Cómo usarlo
 -----------
-1. Doble clic en "Iniciar.bat".
-2. La primera vez:
-   - Opción 6: descarga los modelos (~2.5 GB, necesita internet una sola vez;
-     quedan guardados en esta carpeta). Te pide un token para la "voz natural"
-     (ver abajo); con Enter la salteás y se usa la voz liviana.
-   - Opción 2: graba 15 segundos de tu voz.
-3. Opción 1 para usarlo en una videollamada (en Zoom/Meet/Teams/Discord elegí
-   "CABLE Output" como micrófono), u opción 4 para escucharlo en auriculares.
+1. Doble clic en "clonavoz.exe" (o en "Iniciar.bat", dentro de la carpeta).
+   Si Windows avisa "Windows protegió su PC": "Más información" y "Ejecutar
+   de todas formas" (el programa no está firmado, es gratis y abierto).
+2. La primera vez todo es solo: se instala en la carpeta "clonavoz" del
+   pendrive, baja los modelos (~2.5 GB, con internet, una sola vez; te pide un
+   token para la "voz natural", ver abajo, o Enter para saltearla) y te pide
+   grabar 15 segundos de tu voz.
+3. Opción 1: conversación en videollamada, en las dos direcciones. En
+   Zoom/Meet/Teams/Discord/WhatsApp elegí "CABLE Output" como micrófono y usá
+   auriculares:
+   - Lo que decís sale con tu voz en el idioma en que te hablan (automático:
+     empieza en inglés; si te hablan en portugués, pasa al portugués solo).
+   - Lo que te dicen (en inglés, portugués o cualquier otro idioma) aparece
+     en español en la pantalla y suena traducido en tus auriculares.
+   Opción 2: solo escuchar traducido lo que suena en la PC (una llamada, un
+   video, una reunión), sin micrófono virtual.
 
-La traducción sale como la de un intérprete: no espera a que termines de
-hablar, sino que dice cada idea (hasta una coma o un punto) alrededor de un
-segundo después de que la terminás de decir, mientras seguís hablando.
-Si descargaste los modelos con una versión anterior, volvé a usar la opción 6
-una vez: baja el traductor y el reconocimiento rápidos (~240 MB) y la
-traducción sale antes.
+Tu traducción sale como la de un intérprete: dice cada idea alrededor de un
+segundo después de que la terminás de decir, mientras seguís hablando. Lo que
+te dicen suena traducido alrededor de un segundo después de que la otra
+persona termina cada frase.
+
+La voz de los demás (opción 8)
+------------------------------
+- Parecida (por defecto): una voz de hombre o de mujer según el tono de quien
+  habla. No es su voz.
+- Su voz clonada: SOLO con permiso de la otra persona. Antes de cada
+  conversación se te pregunta si te lo dio; si no, se usa la parecida. Su voz
+  suena solo en tus auriculares, nunca se manda a la llamada y no se guarda.
+- Ninguna: solo el texto en pantalla (subtítulos).
 
 Notebooks lentas
 ----------------
 Al arrancar, clonavoz mide cuánto tarda tu PC. Si no llega a generar tu voz
 clonada en vivo, usa una voz rápida de tono parecido al tuyo (sin clonar) y te
-lo explica. Con la opción 10 elegís la voz: automática, siempre tu voz clonada
+lo explica. Con la opción 9 elegís tu voz: automática, siempre tu voz clonada
 (aunque en una PC lenta la traducción tarde más) o la rápida.
 Consejos: tené la notebook enchufada (con batería Windows la hace más lenta),
 cerrá lo que no uses y hablá en frases cortas, con pausas.
@@ -40,15 +55,15 @@ tuya). Una sola vez, gratis:
   1. Creá una cuenta en https://huggingface.co/join
   2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones.
   3. En https://huggingface.co/settings/tokens creá un token de tipo "Read".
-  4. Opción 6 del menú y pegá el token cuando lo pida (no se ve al pegarlo).
+  4. Opción 10 del menú y pegá el token cuando lo pida (no se ve al pegarlo).
 El token no se guarda. Después funciona sin internet.
 
 Tu voz y tus datos
 ------------------
-Todo queda dentro de la carpeta "datos" de esta carpeta portable: tu muestra
-de voz, los modelos y los idiomas elegidos. En la computadora donde lo usás no
-se guarda nada tuyo. Lo único que se instala en esa PC, y solo si lo elegís,
-es el micrófono virtual VB-CABLE (opción 7), que necesita ser administrador.
+Todo queda dentro de la carpeta "datos" (en el pendrive): tu muestra de voz,
+los modelos y lo que elegiste. En la computadora donde lo usás no se guarda
+nada tuyo. Lo único que se instala en esa PC, y solo si lo elegís, es el
+micrófono virtual VB-CABLE (opción 11), que necesita ser administrador.
 
-Si esa PC no te deja instalar VB-CABLE, podés usar la opción 4 con
-auriculares.
+Si esa PC no te deja instalar VB-CABLE, igual podés usar la opción 2 (escuchar
+traducido) y la 4 (tu voz traducida en tus auriculares).
