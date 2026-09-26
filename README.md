@@ -194,8 +194,9 @@ de GitHub (4 núcleos, sin GPU): se arma la versión portable, se instala VB-CAB
 "habla" en español por un dispositivo de grabación de Windows, como si fuera tu micrófono.
 `test-audio`, `enroll` y `run` tienen que funcionar, y lo que llega a "CABLE Output" (lo
 que escucharía Zoom) tiene que ser la traducción en inglés y entenderse. En esa máquina la
-traducción empezó a sonar ~1.5 segundos después de terminar cada frase (con la voz
-liviana: ahí no se descarga la natural, que necesita tu token). Las
+traducción empezó a sonar entre 1.5 y 2.2 segundos después de terminar cada frase (con la
+voz liviana, que genera la frase entera antes de que suene: ahí no se descarga la
+natural, que necesita tu token). Las
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
 máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 3 del
 menú).
