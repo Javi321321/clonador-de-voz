@@ -20,6 +20,8 @@ frecuencia de muestreo nativa.
 """
 from __future__ import annotations
 
+import dataclasses
+import gc
 import queue
 import threading
 import time
@@ -27,10 +29,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 
 from .asr import SpeechRecognizer
 from .audio_devices import SAMPLE_RATE
-from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream
+from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream, resample
 from .config import PerformanceProfile
 from .languages import Language, get_language
 from .simultaneous import ClauseSplitter
@@ -40,6 +43,40 @@ from .vad import StreamingVAD
 from .voice_clone import VoiceSynthesizer
 
 _SENTINEL = object()
+
+# Segundos de CPU (de toda la PC) que puede costar cada segundo que hablás:
+# entenderlo y decirlo traducido con tu voz. Con más, la traducción se atrasa
+# cada vez más mientras hablás, y con la voz clonada se pasa a la rápida.
+_MAX_LOAD = 1.5
+# Reconocer mientras hablás (para traducir cada idea sin esperar la pausa)
+# cuesta ~4 veces más que reconocer una vez por frase: solo si queda CPU.
+_PARTIALS_COST = 4.3
+_MAX_LOAD_WITH_PARTIALS = 1.4
+# Parakeet entiende mucho mejor que Whisper, pero es un modelo grande: si en
+# esta PC tarda más que esto por segundo de voz, se usa Whisper (en una PC
+# lenta, 3 veces más rápido con frases cortas, ver asr._transcribe_short).
+_PARAKEET_MAX_SECONDS = 0.5
+
+
+@dataclass
+class SpeedCheck:
+    """Lo que tarda esta PC, medido al arrancar (segundos por cada segundo de voz)."""
+
+    asr: float | None  # en entender lo que decís (con 3 s de tu muestra de voz)
+    voice: float | None  # en generar la traducción con la voz elegida
+    rhythm: float | None = None  # voz natural: una vez que empezó a sonar
+
+    @property
+    def load(self) -> float | None:
+        if self.voice is None:
+            return None
+        return (self.asr if self.asr is not None else 0.3) + self.voice
+
+    @property
+    def partials_fit(self) -> bool:
+        if self.asr is None or self.voice is None:
+            return True
+        return _PARTIALS_COST * self.asr + self.voice <= _MAX_LOAD_WITH_PARTIALS
 
 
 @dataclass
@@ -68,8 +105,16 @@ class LiveVoicePipeline:
         output_device: int | None,
         on_transcript=None,
         on_message=print,
+        allow_engine_fallback: bool = False,
     ) -> None:
+        """`allow_engine_fallback`: si esta PC no llega a generar la voz elegida
+        en vivo, usar la voz rápida (cuando elegiste la voz "auto")."""
         self.profile = profile
+        self._reference_wav = Path(reference_wav)
+        self._allow_engine_fallback = allow_engine_fallback
+        self.speed: SpeedCheck | None = None
+        self.fallback_from: str | None = None  # motor que no llegaba (si se cambió a la voz rápida)
+        self.slow_parakeet: float | None = None  # lo que tardaba Parakeet, si se cambió a Whisper
         self.source_language: Language = get_language(source_lang)
         self.target_language: Language = get_language(target_lang)
         self.on_transcript = on_transcript
@@ -82,6 +127,7 @@ class LiveVoicePipeline:
         # Con Parakeet se traduce en simultáneo: se corta al final de cada idea
         # mientras seguís hablando (ver simultaneous.py).
         self.simultaneous = self._asr.can_split
+        self.translate_while_speaking = self.simultaneous  # se apaga si la PC no da (ver _warm_up)
         splitter = ClauseSplitter(self._asr.transcribe_timed) if self.simultaneous else None
         self._vad = StreamingVAD(max_utterance_seconds=profile.max_utterance_seconds, splitter=splitter)
         self._translator = Translator(
@@ -117,35 +163,154 @@ class LiveVoicePipeline:
         """Una pasada de prueba por cada modelo al arrancar: la primera llamada
         a cada uno es bastante más lenta (reserva memoria, prepara cálculos), y
         así eso no le toca a tu primera frase. Si la síntesis falla (por
-        ejemplo, falta FFmpeg para XTTS), el error se ve ya al arrancar."""
+        ejemplo, falta FFmpeg para XTTS), el error se ve ya al arrancar.
+
+        De paso se mide lo que tarda esta PC, y con eso se decide cómo trabajar
+        (ver `_adapt_to_speed`)."""
         try:
             self._asr.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), self.source_language.whisper_code)
+            asr_speed = self._measure_asr()
             text = self._translator.translate("Hola, ¿cómo estás? Te quería contar algo.")
             self._synth.synthesize(text, self.target_language)
-            if self._synth.can_stream(self.target_language):
-                self._choose_stream_playback(text)
+            self.speed = SpeedCheck(asr_speed, *self._measure_voice(text))
+            self._adapt_to_speed(text)
         except Exception as exc:  # noqa: BLE001 - se informa igual que el error de una frase
             self._report_phrase_error(exc)
 
-    def _choose_stream_playback(self, text: str) -> None:
-        """Ir reproduciendo la voz mientras se genera ahorra casi todo el tiempo de
-        generarla, pero solo sirve si esta PC la genera bastante más rápido de lo
-        que dura: si no, se cortaría. Se mide el ritmo después del primer pedazo
-        (que siempre tarda un poco más): segundos para generar cada segundo de voz."""
+    def _measure_asr(self) -> float | None:
+        """Segundos que tarda en entender cada segundo que hablás, con 3 s de tu
+        muestra de voz (voz de verdad: con silencio tarda distinto)."""
+        try:
+            audio, rate = sf.read(str(self._reference_wav), dtype="float32")
+        except Exception:  # noqa: BLE001 - sin la medición se asume una PC normal
+            return None
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        clip = resample(audio, rate, SAMPLE_RATE)[SAMPLE_RATE : 4 * SAMPLE_RATE]
+        if len(clip) < SAMPLE_RATE:
+            return None
+        started = time.perf_counter()
+        if self.simultaneous:
+            self._asr.transcribe_timed(clip)
+        else:
+            self._asr.transcribe(clip, self.source_language.whisper_code)
+        return (time.perf_counter() - started) / (len(clip) / SAMPLE_RATE)
+
+    def _measure_voice(self, text: str) -> tuple[float | None, float | None]:
+        """(segundos por segundo de voz generada, y con la voz natural, el ritmo
+        después del primer pedazo, que es lo que importa para ir reproduciendo
+        mientras se genera: el primero siempre tarda un poco más)."""
+        started = time.perf_counter()
+        if not self._synth.can_stream(self.target_language):
+            audio, rate = self._synth.synthesize(text, self.target_language)
+            seconds = len(audio) / rate
+            return ((time.perf_counter() - started) / seconds if seconds else None), None
         chunks, rate = self._synth.stream(text, self.target_language)
-        started, samples = None, 0
+        first, total, after_first = None, 0, 0
         for chunk in chunks:
-            if started is None:
-                started = time.perf_counter()
+            if first is None:
+                first = time.perf_counter()
             else:
-                samples += len(chunk)
-        if started is None or samples == 0:
-            return
-        rhythm = (time.perf_counter() - started) / (samples / rate)
-        self.stream_playback = rhythm < 0.75
-        # Mientras hablás, el reconocimiento le quita CPU a la voz: cuanto más
-        # justa viene la PC, más colchón antes de empezar a sonar cada frase.
-        self.output.STREAM_CUSHION_SECONDS = 0.15 if rhythm < 0.4 else 0.3 if rhythm < 0.6 else 0.45
+                after_first += len(chunk)
+            total += len(chunk)
+        if not total:
+            return None, None
+        now = time.perf_counter()
+        voice = (now - started) / (total / rate)
+        return voice, ((now - first) / (after_first / rate) if after_first else voice)
+
+    def _adapt_to_speed(self, text: str) -> None:
+        """Con lo que tarda esta PC: si no llega a generar tu voz clonada en vivo,
+        la voz rápida (si elegiste la voz "auto"); reproducir mientras se genera
+        solo si da el tiempo; y traducir mientras hablás solo si sobra CPU."""
+        speed = self.speed
+        if self._asr.name == "Parakeet" and speed.asr is not None and speed.asr > _PARAKEET_MAX_SECONDS:
+            self.slow_parakeet = speed.asr
+            self._use_whisper()
+            self.speed = speed = SpeedCheck(self._measure_asr(), speed.voice, speed.rhythm)
+        if (
+            self._allow_engine_fallback
+            and self._synth.engine != "rapida"
+            and speed.load is not None
+            and speed.load > _MAX_LOAD
+        ):
+            fast = self._fast_voice(text)
+            if fast is not None:
+                self.fallback_from = self._synth.engine
+                self._slow_voice = speed.voice
+                self._synth = fast
+                gc.collect()  # libera la memoria de la otra voz
+                self.speed = speed = SpeedCheck(speed.asr, *self._measure_voice(text))
+        if speed.rhythm is not None:
+            # Ir reproduciendo mientras se genera solo si esta PC genera la voz
+            # bastante más rápido de lo que dura: si no, la voz se cortaría.
+            self.stream_playback = speed.rhythm < 0.75
+            # Mientras hablás, el reconocimiento le quita CPU a la voz: cuanto más
+            # justa viene la PC, más colchón antes de empezar a sonar cada frase.
+            self.output.STREAM_CUSHION_SECONDS = 0.15 if speed.rhythm < 0.4 else 0.3 if speed.rhythm < 0.6 else 0.45
+        if self.simultaneous and not speed.partials_fit:
+            self._vad.split_while_speaking = False
+            self.translate_while_speaking = False
+        for message in self._speed_messages():
+            self.on_message(message)
+
+    def _fast_voice(self, text: str) -> VoiceSynthesizer | None:
+        """La voz rápida, lista para usar; None si no hay voz de Piper en ese idioma."""
+        try:
+            fast = VoiceSynthesizer(self.profile, self._reference_wav, engine="rapida")
+            fast.preload(self.target_language)
+            fast.synthesize(text, self.target_language)
+        except Exception:  # noqa: BLE001 - se sigue con la voz que había
+            return None
+        return fast
+
+    def _use_whisper(self) -> None:
+        """Whisper en vez de Parakeet (sin traducir mientras hablás: Whisper no da
+        el tiempo de cada palabra), liberando la memoria de Parakeet."""
+        # "tiny": el más rápido (y el que siempre se descarga).
+        self._asr = SpeechRecognizer(dataclasses.replace(self.profile, whisper_model="tiny"))
+        self.asr_name = self._asr.name
+        self.simultaneous = self.translate_while_speaking = False
+        self._vad = StreamingVAD(max_utterance_seconds=self.profile.max_utterance_seconds)
+        gc.collect()
+        self._asr.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), self.source_language.whisper_code)
+
+    def _speed_messages(self) -> list[str]:
+        speed = self.speed
+        if speed is None or speed.load is None:
+            return []
+        understand = f" y {speed.asr:.1f} s en entender cada segundo que hablás" if speed.asr is not None else ""
+        messages = []
+        if self.slow_parakeet is not None:
+            messages.append(
+                f"[clonavoz] El reconocimiento más preciso (Parakeet) tarda {self.slow_parakeet:.1f} s por cada "
+                f"segundo en esta PC: se usa {self.asr_name}, que acá es más rápido pero se equivoca más."
+            )
+        return messages + self._voice_messages(speed, understand)
+
+    def _voice_messages(self, speed: SpeedCheck, understand: str) -> list[str]:
+        if self.fallback_from is not None:
+            return [
+                f"[clonavoz] Esta PC tarda {self._slow_voice:.1f} s en generar cada segundo de tu voz clonada"
+                f"{understand}: en vivo, la traducción se atrasaría cada vez más.",
+                "[clonavoz] Para que la conversación no se atrase se usa la voz rápida (un tono parecido al "
+                "tuyo, sin clonar). Para usar tu voz clonada igual, aunque tarde más: --voice-engine natural "
+                "(en la versión portable, opción 10 del menú).",
+            ]
+        if speed.load > _MAX_LOAD:
+            messages = [
+                f"[clonavoz] Esta PC tarda {speed.voice:.1f} s en generar cada segundo de voz{understand}: "
+                "la traducción se va a ir atrasando mientras hablás. Hablá en frases cortas, con pausas."
+            ]
+            if self._synth.engine != "rapida":
+                messages.append(
+                    "[clonavoz] Con la voz rápida (--voice-engine rapida; opción 10 del menú en la versión "
+                    "portable) sale bastante antes, pero no es tu voz clonada."
+                )
+            return messages
+        if speed.load > 1.0:
+            return ["[clonavoz] Esta PC va justa: en frases largas la traducción se atrasa un poco y se pone al día en las pausas."]
+        return []
 
     def start(self) -> None:
         """Abre la salida y el micrófono y arranca los hilos. Si un

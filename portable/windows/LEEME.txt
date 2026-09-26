@@ -21,6 +21,15 @@ segundo después de que la terminás de decir, mientras seguís hablando.
 Si descargaste los modelos con una versión anterior, volvé a usar la opción 6
 una vez: baja el traductor rápido (~160 MB) y la traducción sale antes.
 
+Notebooks lentas
+----------------
+Al arrancar, clonavoz mide cuánto tarda tu PC. Si no llega a generar tu voz
+clonada en vivo, usa una voz rápida de tono parecido al tuyo (sin clonar) y te
+lo explica. Con la opción 10 elegís la voz: automática, siempre tu voz clonada
+(aunque en una PC lenta la traducción tarde más) o la rápida.
+Consejos: tené la notebook enchufada (con batería Windows la hace más lenta),
+cerrá lo que no uses y hablá en frases cortas, con pausas.
+
 Voz natural (recomendada)
 -------------------------
 Es la que más se parece a vos y la que suena más natural (inglés, español,

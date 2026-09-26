@@ -267,6 +267,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
             output_device=output.index,
             on_transcript=on_transcript,
             on_message=status.print,
+            allow_engine_fallback=args.voice_engine == "auto",
         )
     except RuntimeError as exc:  # ej. idioma sin voz de Piper, o le falta un paquete
         print(exc, file=sys.stderr)
@@ -283,10 +284,10 @@ def _cmd_run(args: argparse.Namespace) -> None:
     mic_name = audio_devices.virtual_mic_name(output.name)
     if mic_name:
         print(f"En Zoom/Meet/Teams/Discord elegí como micrófono: {mic_name}")
-    if pipeline.simultaneous:
+    if pipeline.translate_while_speaking:
         when = "cada idea sale traducida alrededor de un segundo después de que la terminás de decir"
     else:
-        when = "cada frase sale traducida unos segundos después de que la terminás"
+        when = "cada frase sale traducida cuando hacés una pausa"
     print(f"Escuchando... hablá normalmente: {when}, por el micrófono virtual. Ctrl+C para detener.")
     try:
         _show_live_status(pipeline, status)
@@ -503,9 +504,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--voice-engine",
         default="auto",
-        choices=["auto", "natural", "openvoice", "xtts"],
+        choices=["auto", "natural", "openvoice", "rapida", "xtts"],
         help="Cómo se genera tu voz: 'natural' (Pocket TTS: la más parecida a vos y natural; se usa sola "
-        "si está descargada), 'openvoice' (liviano, en ~37 idiomas) o 'xtts' (XTTS-v2, pesado, para GPU).",
+        "si está descargada), 'openvoice' (liviano, en ~37 idiomas), 'rapida' (una voz de tono parecido "
+        "al tuyo, sin clonar: para PCs muy lentas; 'auto' la elige sola si tu voz clonada no llega a "
+        "tiempo) o 'xtts' (XTTS-v2, pesado, para GPU).",
     )
     p_run.set_defaults(func=_cmd_run)
 

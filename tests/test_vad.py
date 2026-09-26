@@ -60,8 +60,16 @@ def test_a_long_phrase_is_cut_at_a_short_pause_not_mid_word():
     assert 20 <= lengths[1] <= 25
 
 
+def test_the_longer_it_gets_the_shorter_the_pause_that_cuts_it():
+    # Pausas de 2 bloques (64 ms): no cortan a los 3 s, pero sí pasados los 6 s.
+    probs = ([SPEECH] * 30 + [QUIET] * 2) * 8 + [SPEECH] * 20 + [QUIET] * 20
+    lengths, _, _ = run(probs)
+    assert lengths[0] >= int(6.0 / 0.032)
+    assert lengths[0] < int(6.6 / 0.032)
+
+
 def test_without_any_pause_it_cuts_at_the_quietest_moment():
-    # Sin pausas, al llegar al máximo (7.5 s) se corta en el momento más
+    # Sin pausas, al llegar al máximo (6.6 s) se corta en el momento más
     # silencioso del último segundo y medio (entre dos palabras), no ahí mismo.
     probs = [SPEECH] * 200 + [0.4] + [SPEECH] * 199
     lengths, vad, _ = run(probs)

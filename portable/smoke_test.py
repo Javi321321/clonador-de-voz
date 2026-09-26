@@ -8,6 +8,7 @@ natural). Falla si algún paso no produce resultado.
 from __future__ import annotations
 
 import math
+import re
 import time
 
 import numpy as np
@@ -56,9 +57,22 @@ def main() -> None:
     recognizer = SpeechRecognizer(get_profile("low"), "es")
     if parakeet_asr.ready() and parakeet_asr.enough_memory():
         assert recognizer.name == "Parakeet", f"con Parakeet descargado se usó {recognizer.name}"
-    text = recognizer.transcribe(resample_poly(audio, 16000 // g, rate // g).astype(np.float32), "es")
+    audio16 = resample_poly(audio, 16000 // g, rate // g).astype(np.float32)
+    text = recognizer.transcribe(audio16, "es")
     assert text, f"{recognizer.name} no reconoció nada"
     _step(f"reconocimiento ({recognizer.name}): {text!r}", t)
+
+    # Whisper con la ventana corta (la que se usa en PCs lentas o con poca memoria).
+    t = time.perf_counter()
+    whisper = SpeechRecognizer(get_profile("low"))
+    whisper.transcribe(audio16[:16000], "es")
+    t = time.perf_counter()
+    short = whisper._transcribe_short(audio16, "es")
+    assert short is not None, "Whisper con la ventana corta no dio un resultado confiable"
+    heard = set(re.findall(r"\w+", short.lower()))
+    assert len(heard & {"hola", "esta", "es", "mi", "voz", "estoy", "probando", "traductor", "computadora"}) >= 4, short
+    _step(f"reconocimiento rápido ({whisper.name}, ventana de 10 s): {short!r}", t)
+    del whisper
 
     t = time.perf_counter()
     translator = Translator("spa_Latn", "eng_Latn", pair=("es", "en"))
@@ -77,6 +91,13 @@ def main() -> None:
     assert seconds > 1.0 and np.abs(out).max() > 0.01, "la voz clonada salió vacía"
     sf.write(str(data_dir() / "prueba_en.wav"), out, out_rate)
     _step(f"voz clonada en inglés ({seconds:.1f}s de audio)", t)
+
+    t = time.perf_counter()
+    fast = VoiceSynthesizer(get_profile("low"), sample, engine="rapida")
+    fast.preload(get_language("en"))
+    out, out_rate = fast.synthesize(english, get_language("en"))
+    assert len(out) / out_rate > 1.0 and np.abs(out).max() > 0.01, "la voz rápida salió vacía"
+    _step(f"voz rápida en inglés ({len(out) / out_rate:.1f}s de audio)", t)
 
     _natural_voice(sample, english)
     print("TODO OK")
@@ -111,6 +132,30 @@ def _natural_voice(sample, english: str) -> None:
     sf.write(str(data_dir() / "prueba_natural_en.wav"), out, rate)
     _step(f"{what} en inglés ({seconds:.1f}s de audio, {elapsed / seconds:.2f}x del tiempo real, "
           f"{torch.get_num_threads()} hilos)", t)
+    _natural_voice_int8(english)
+
+
+def _natural_voice_int8(english: str) -> None:
+    """La versión int8 de la voz natural (la que se usa en procesadores con AVX2)."""
+    import warnings
+
+    from clonavoz import pocket_voice
+
+    if not pocket_voice.int8_supported():
+        print("  --  voz natural int8: este procesador no tiene AVX2 (se usa la normal)", flush=True)
+        return
+    t = time.perf_counter()
+    tts_model, _ = pocket_voice._import_pocket()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        model = tts_model.load_model(language="english", quantize=True)
+    state = model.get_state_for_audio_prompt("alba")
+    model.generate_audio(state, "Hi.")
+    t = time.perf_counter()
+    out, rate = model.generate_audio(state, english).squeeze(0).numpy(), model.sample_rate
+    elapsed, seconds = time.perf_counter() - t, len(out) / rate
+    assert seconds > 1.0 and np.abs(out).max() > 0.01, "la voz natural int8 salió vacía"
+    _step(f"voz natural int8 ({seconds:.1f}s de audio, {elapsed / seconds:.2f}x del tiempo real)", t)
 
 
 if __name__ == "__main__":

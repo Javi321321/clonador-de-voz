@@ -135,7 +135,15 @@ class _OpusTranslator:
 
     def translate(self, text: str) -> str:
         tokens = self._tokenizer.convert_ids_to_tokens(self._tokenizer.encode(text))
-        result = self._model.translate_batch([tokens], beam_size=1, max_decoding_length=256)
+        result = self._model.translate_batch(
+            [tokens],
+            beam_size=1,
+            # Si algo sale mal (por ejemplo, llega un texto mal reconocido), que no
+            # diga una tira de letras repetidas: sin repetir 4 pedazos seguidos y
+            # no mucho más largo que el original.
+            no_repeat_ngram_size=4,
+            max_decoding_length=min(256, 2 * len(tokens) + 8),
+        )
         ids = self._tokenizer.convert_tokens_to_ids(result[0].hypotheses[0])
         return self._tokenizer.decode(ids, skip_special_tokens=True).strip()
 

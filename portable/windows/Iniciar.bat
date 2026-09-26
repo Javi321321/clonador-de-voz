@@ -4,14 +4,16 @@ cd /d "%~dp0"
 title clonavoz portable
 set "ORIGEN=es"
 set "DESTINO=en"
+set "VOZ=auto"
 if exist "datos\idiomas.txt" for /f "usebackq tokens=1,2" %%a in ("datos\idiomas.txt") do (set "ORIGEN=%%a" & set "DESTINO=%%b")
+if exist "datos\voz.txt" for /f "usebackq tokens=1" %%a in ("datos\voz.txt") do set "VOZ=%%a"
 
 :menu
 cls
 echo ==============================================================
 echo    clonavoz portable - traductor de voz con tu propia voz
 echo ==============================================================
-echo    Hablas en: %ORIGEN%    Te escuchan en: %DESTINO%
+echo    Hablas en: %ORIGEN%    Te escuchan en: %DESTINO%    Voz: %VOZ%
 if not exist "datos\mi_voz.wav" echo    Todavia no grabaste tu voz: usa la opcion 2.
 if not exist "datos\modelos_listos.txt" echo    Faltan los modelos: usa la opcion 6 (una sola vez, con internet).
 echo.
@@ -24,6 +26,7 @@ echo    6. Descargar modelos para usar sin internet
 echo    7. Instalar el microfono virtual VB-CABLE en esta PC
 echo    8. Ver dispositivos de audio
 echo    9. Apps que no dejan elegir microfono: poner CABLE Output como predeterminado
+echo   10. Elegir la voz (automatica, siempre mi voz clonada, o rapida)
 echo    0. Salir
 echo.
 set "OPCION="
@@ -37,6 +40,7 @@ if "%OPCION%"=="6" goto descargar
 if "%OPCION%"=="7" goto vbcable
 if "%OPCION%"=="8" goto dispositivos
 if "%OPCION%"=="9" goto predeterminado
+if "%OPCION%"=="10" goto voz
 if "%OPCION%"=="0" exit /b 0
 goto menu
 
@@ -45,7 +49,7 @@ if not exist "datos\mi_voz.wav" goto falta_voz
 echo.
 echo En la videollamada elegi como microfono: CABLE Output
 echo Para terminar, presiona Ctrl+C (y si pregunta si terminar el trabajo por lotes, responde N).
-call clonavoz.bat run --source-lang %ORIGEN% --target-lang %DESTINO%
+call clonavoz.bat run --source-lang %ORIGEN% --target-lang %DESTINO% --voice-engine %VOZ%
 pause
 goto menu
 
@@ -54,7 +58,7 @@ if not exist "datos\mi_voz.wav" goto falta_voz
 echo.
 echo Usa auriculares: si suena por parlantes, el microfono lo vuelve a escuchar.
 echo Para terminar, presiona Ctrl+C (y si pregunta si terminar el trabajo por lotes, responde N).
-call clonavoz.bat run --source-lang %ORIGEN% --target-lang %DESTINO% --to-speakers
+call clonavoz.bat run --source-lang %ORIGEN% --target-lang %DESTINO% --to-speakers --voice-engine %VOZ%
 pause
 goto menu
 
@@ -107,6 +111,23 @@ goto menu
 
 :dispositivos
 call clonavoz.bat devices
+pause
+goto menu
+
+:voz
+echo.
+echo Que voz usar para la traduccion:
+echo   1. Automatica: tu voz clonada si esta PC llega a generarla en vivo; si no,
+echo      la rapida (clonavoz lo mide al arrancar y te avisa).
+echo   2. Siempre mi voz clonada, aunque en una PC lenta la traduccion tarde mas.
+echo   3. Rapida: una voz de tono parecido al tuyo, sin clonar. La mas rapida.
+set "ELEGIDA="
+set /p "ELEGIDA=Elegi 1, 2 o 3 y presiona Enter: "
+if "%ELEGIDA%"=="1" set "VOZ=auto"
+if "%ELEGIDA%"=="2" set "VOZ=natural"
+if "%ELEGIDA%"=="3" set "VOZ=rapida"
+>"datos\voz.txt" echo %VOZ%
+echo Voz elegida: %VOZ%
 pause
 goto menu
 

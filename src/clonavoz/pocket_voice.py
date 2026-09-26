@@ -13,6 +13,11 @@ la traducción empieza a sonar ~0.1 s después de empezar a generarla.
 Idiomas en los que habla: inglés, español, francés, alemán, portugués,
 italiano y neerlandés. Para los demás se usa el motor liviano.
 
+En procesadores con AVX2 (casi todos desde 2013) se usa la versión int8 del
+modelo: en nuestras pruebas se pareció igual a la persona (0.928 contra
+0.929) y sonó igual de natural, pero tarda ~25% menos. Los Celeron/Pentium
+más baratos no tienen AVX2: ahí se usa la versión normal.
+
 Los pesos del modelo que permite clonar voces están en Hugging Face con una
 condición: aceptar que solo vas a clonar una voz con el consentimiento de su
 dueño (la tuya). Se acepta una vez, con una cuenta gratis, en
@@ -26,7 +31,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import platform
 import re
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -52,6 +59,15 @@ _THREADS = 2
 
 def supports(language_code: str) -> bool:
     return language_code in LANGUAGES
+
+
+def int8_supported() -> bool:
+    """Si este procesador puede usar la versión int8 (la de PyTorch necesita AVX2)."""
+    if platform.machine().lower() not in ("amd64", "x86_64"):
+        return False
+    import torch
+
+    return torch.backends.cpu.get_cpu_capability() in ("AVX2", "AVX512")
 
 
 def _import_pocket():
@@ -132,25 +148,42 @@ def download(language_code: str, token: str | None = None) -> None:
 
 
 class PocketVoice:
-    """Tu voz clonada con Pocket TTS, en los idiomas que ya estén descargados."""
+    """Tu voz clonada con Pocket TTS, en los idiomas que ya estén descargados.
+    `int8`: usar la versión int8 (None = si el procesador la soporta)."""
 
-    def __init__(self, reference_wav: Path) -> None:
+    def __init__(self, reference_wav: Path, int8: bool | None = None) -> None:
         self.reference_wav = Path(reference_wav)
+        self.int8 = int8_supported() if int8 is None else int8
         self._models: dict[str, object] = {}
         self._states: dict[str, object] = {}
         self.sample_rate = 24000
 
+    def _load(self, language_code: str):
+        TTSModel, _ = _import_pocket()
+        config = str(_config_path(language_code))
+        if self.int8:
+            try:
+                with warnings.catch_warnings():
+                    # PyTorch avisa que su cuantización int8 va a cambiar de lugar.
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    return TTSModel.load_model(config=config, quantize=True)
+            except Exception:  # noqa: BLE001 - sin int8 (ej. otra versión de PyTorch): la normal
+                self.int8 = False
+        return TTSModel.load_model(config=config)
+
     def _model(self, language_code: str):
         if language_code not in self._models:
-            TTSModel, _ = _import_pocket()
-            model = TTSModel.load_model(config=str(_config_path(language_code)))
+            model = self._load(language_code)
             self.sample_rate = model.sample_rate
             self._models[language_code] = model
         return self._models[language_code]
 
+    def _digest(self) -> str:
+        return hashlib.sha1(self.reference_wav.read_bytes()).hexdigest()[:12]
+
     def _state_file(self, language_code: str) -> Path:
-        digest = hashlib.sha1(self.reference_wav.read_bytes()).hexdigest()[:12]
-        return data_dir() / "voces" / f"pocket_{LANGUAGES[language_code]}_{digest}.safetensors"
+        variant = "_int8" if self.int8 else ""
+        return data_dir() / "voces" / f"pocket_{LANGUAGES[language_code]}_{self._digest()}{variant}.safetensors"
 
     def _state(self, language_code: str):
         """Tu voz "cargada" en el modelo. Calcularla tarda 1-3 s, así que se guarda
@@ -170,13 +203,22 @@ class PocketVoice:
                 _, export_model_state = _import_pocket()
                 path.parent.mkdir(parents=True, exist_ok=True)
                 for old in path.parent.glob(f"pocket_{LANGUAGES[language_code]}_*.safetensors"):
-                    old.unlink()  # la de una muestra anterior
+                    if self._digest() not in old.name:
+                        old.unlink()  # la de una muestra anterior
                 export_model_state(state, path)
             self._states[language_code] = state
         return self._states[language_code]
 
     def preload(self, language_code: str) -> None:
         self._state(language_code)
+        if self.int8:
+            try:
+                self._model(language_code).generate_audio(self._states[language_code], "Hi.")
+            except Exception:  # noqa: BLE001 - la int8 no anda en este procesador: la normal
+                self.int8 = False
+                self._models.pop(language_code)
+                self._states.pop(language_code)
+                self._state(language_code)
 
     def synthesize(self, text: str, language_code: str) -> tuple[np.ndarray, int]:
         audio = self._model(language_code).generate_audio(self._state(language_code), text)

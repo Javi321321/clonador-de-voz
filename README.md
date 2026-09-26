@@ -21,7 +21,9 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
    GPU, cada frase empezó a sonar traducida **alrededor de 1 segundo** después de
    terminar de decirla (las largas, mientras seguías hablando), y la traducción terminó
    **unos 3 a 4 segundos** después de que terminaste
-   ([detalles](#traducción-simultánea-la-menor-demora-posible)).
+   ([detalles](#traducción-simultánea-la-menor-demora-posible)). En una notebook muy
+   lenta, tu voz clonada no llega a generarse en vivo: clonavoz lo detecta y usa una voz
+   rápida de tono parecido al tuyo ([ver](#notebooks-de-muy-bajo-rendimiento)).
 2. **Tu voz clonada suena más natural en 7 idiomas y funciona en ~37.** La *voz natural*
    (inglés, español, francés, alemán, portugués, italiano y neerlandés) genera cada frase
    directamente con tu voz y es la que más se parece a vos; hay que descargarla una vez
@@ -102,6 +104,58 @@ después y, hablando de corrido, la traducción recién empezaba a sonar a los 9
 Con Whisper (los idiomas que Parakeet no entiende, o PCs con menos de 6 GB de RAM), cada
 frase se traduce cuando hacés una pausa, pero igual se usan el traductor rápido y el
 apuro para alcanzarte.
+
+## Notebooks de muy bajo rendimiento
+
+clonavoz mide tu PC cada vez que arranca (cuánto tarda en entender lo que decís, con tu
+propia muestra de voz, y en generar la traducción con tu voz) y se adapta sola:
+
+- **Si tu voz clonada no llega a generarse en vivo, usa la voz rápida**: una voz de tono
+  parecido al tuyo (grave o aguda), sin clonar, unas 10 veces más rápida. Te avisa al
+  arrancar, con los números de tu PC. Si preferís tu voz clonada igual, aunque la
+  traducción tarde más: opción **10** del menú de la versión portable ("Elegir la voz"),
+  o `--voice-engine natural`.
+- **Whisper con ventana corta**: Whisper analiza siempre 30 s de audio, aunque digas una
+  frase de 1 s. Para frases de hasta 7 s, clonavoz le da una ventana de 10 s: en una
+  notebook lenta entiende hasta 4 veces más rápido (en 181 pedazos de grabaciones reales,
+  28.4% de palabras distintas a las de Parakeet, contra 27.5% con la ventana normal; si
+  el resultado parece dudoso, se usa la ventana normal).
+- **Parakeet** (el reconocimiento más preciso) se cambia por Whisper si en esa PC tarda
+  más de medio segundo por cada segundo de voz.
+- Si reconocer mientras hablás no deja procesador para la voz, traduce en cada pausa.
+- Si hablás de corrido, a medida que la frase se alarga alcanza con una pausa más corta
+  para cortarla (leyendo o hablando rápido casi no hay pausas largas).
+- **Voz natural int8** en procesadores con AVX2 (casi todos desde 2013; no los Celeron y
+  Pentium más baratos): se parece igual a vos y suena igual de natural (0.928 contra
+  0.929 y 3.91 contra 3.90), pero tarda ~25% menos.
+- Con 4 GB de RAM se usa Whisper (Parakeet necesita 6 GB): clonavoz ocupa ~1 GB con la
+  voz rápida y ~1.3 GB con tu voz clonada.
+
+Medido en una notebook débil simulada, como una con Celeron N4020 (muy común en las
+notebooks más baratas: 2 núcleos lentos, sin AVX) y 4 GB de RAM:
+
+| | Antes | Ahora, voz automática (pasa a la rápida) | Ahora, siempre tu voz clonada |
+|---|---|---|---|
+| Conversación (19 s): la primera frase empieza a sonar | 6.2 s después de decirla | 1.8 s | 4.6 s |
+| ... y la traducción termina | 36 s después de que terminaste | 6.3 s | 23 s |
+| Hablando de corrido (28 s): empieza a sonar | — | a los 6.7 s | — |
+| ... y la traducción termina | — | 6.6 s después de que terminaste | — |
+
+En esa notebook tu voz clonada tarda 1.9 s en generarse por cada segundo de voz: no
+puede ir en vivo. Para tu voz clonada sin demora hace falta un procesador bastante más
+rápido (en una PC de 2 núcleos modernos tarda 0.35 s por segundo).
+
+| Voz | Parecido a vos | Naturalidad | Segundos por cada segundo de voz (2 núcleos modernos) | En la notebook débil |
+|---|---|---|---|---|
+| natural (tu voz clonada) | 0.93 | 3.9 | 0.35 | 1.9 |
+| rápida (tono parecido, sin clonar) | 0.70 | 4.0 | 0.05 | 0.3 |
+
+(5 personas reales diciendo frases en inglés; en parecido, otra grabación de la misma
+persona da 0.98.)
+
+Consejos para una notebook lenta: tenela enchufada (con batería, Windows baja la
+velocidad del procesador), cerrá los programas y pestañas que no uses, y hablá en frases
+cortas, con pausas.
 
 ## Instalación de un solo comando
 
@@ -370,7 +424,7 @@ de salida de la llamada como entrada y reproduciendo hacia tus audífonos.
 
 | Perfil | Cuándo se usa | Reconocimiento de voz | Motor de voz |
 |---|---|---|---|
-| `low` | Laptop sin GPU, poca RAM | Parakeet (con ≥6 GB de RAM), si no Whisper `tiny` | `natural` si está descargada, si no `openvoice` |
+| `low` | Laptop sin GPU, poca RAM | Parakeet (con ≥6 GB de RAM), si no Whisper `tiny` | `natural` si está descargada, si no `openvoice` (o `rapida` si la PC no llega) |
 | `medium` | Laptop de gama media / Apple Silicon | Parakeet, si no Whisper `small` | `natural` si está descargada, si no `openvoice` |
 | `high` | Notebook gamer con GPU NVIDIA (≥6GB VRAM) | Parakeet, si no Whisper `medium` | `natural` si está descargada, si no `xtts` |
 

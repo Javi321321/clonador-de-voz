@@ -1,4 +1,4 @@
-"""Síntesis de voz con tu timbre. Tres motores:
+"""Síntesis de voz con tu timbre. Cuatro motores:
 
 - "natural" (por defecto cuando está descargado): Pocket TTS genera la frase
   ya con tu voz, clonada de tu muestra; es el que más se parece a vos y el más
@@ -10,6 +10,12 @@
   que XTTS-v2 en CPU, usa poca memoria y clona tu voz en todos los idiomas
   que tienen voz de Piper (~37). Con una voz base de tono parecido al tuyo,
   en nuestras pruebas se parece a la voz original tanto o más que XTTS-v2.
+- "rapida" (para notebooks muy lentas): Piper dice la frase con la voz base
+  de tono más parecido al tuyo (grave o aguda), sin clonar tu timbre. Se
+  parece bastante menos a vos (0.70 contra 0.93 de "natural" en nuestras
+  pruebas), pero es ~10 veces más rápida: en una notebook que no llega a
+  generar tu voz clonada en vivo, la conversación no se atrasa. El programa
+  la elige solo en ese caso (ver pipeline._check_speed).
 - "xtts" (por defecto con GPU NVIDIA): XTTS-v2 genera la voz clonada
   directamente, con una entonación algo más natural, pero es pesado: en CPU
   cada frase tarda varios segundos. Clona en ~17 idiomas; para el resto usa
@@ -28,10 +34,11 @@ from .config import PerformanceProfile
 from .languages import Language
 from .piper_tts import PiperSynthesizer, median_pitch
 
-ENGINES = ("natural", "openvoice", "xtts")
+ENGINES = ("natural", "openvoice", "rapida", "xtts")
 ENGINE_NAMES = {
     "natural": "natural (Pocket TTS: tu voz clonada)",
     "openvoice": "liviano (Piper + OpenVoice)",
+    "rapida": "rápida (Piper con un tono parecido al tuyo, sin clonar)",
     "xtts": "XTTS-v2",
 }
 
@@ -164,6 +171,8 @@ class VoiceSynthesizer:
         más en salir sin que se note por qué, y los errores aparecerían tarde."""
         if self._uses_pocket(language):
             self._get_pocket().preload(language.code)
+        elif self.engine == "rapida":
+            self._get_piper().preload(language.code)
         elif self.engine in ("natural", "openvoice"):
             self._get_converter()
             self._source_embedding(language)
@@ -178,6 +187,9 @@ class VoiceSynthesizer:
 
         if self._uses_pocket(language):
             return self._get_pocket().synthesize(text, language.code)
+
+        if self.engine == "rapida":
+            return self._get_piper().synthesize(text, language.code)
 
         if self.engine in ("natural", "openvoice"):
             audio, sample_rate = self._get_piper().synthesize(text, language.code)
