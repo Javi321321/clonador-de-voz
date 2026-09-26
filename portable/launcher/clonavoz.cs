@@ -658,6 +658,7 @@ sealed class MainForm : Form
     bool askedCable;       // ya se ofreció instalar VB-CABLE (no insistir)
     bool conversing;       // "conversar" (con VB-CABLE) o solo "escuchar"
     bool wasActive;
+    bool subtitlesOnly;    // no hay auriculares ni parlantes: lo que te dicen, solo en pantalla
     string heardNow;       // en qué idioma te están escuchando ahora
     string lastSpeaker = "";
     readonly List<string> recent = new List<string>();  // las últimas líneas, para explicar un error
@@ -1049,7 +1050,7 @@ sealed class MainForm : Form
             activate.Text = "DETENER";
             activate.BackColor = Red;
             status.Text = ActiveText();
-            TestOutput.Line("ACTIVO");
+            TestOutput.Line("ACTIVO | " + status.Text);
             if (test == "--prueba-activar") StopAfterTest();
         }
     }
@@ -1088,15 +1089,16 @@ sealed class MainForm : Form
 
     string ActiveText()
     {
+        string sound = subtitlesOnly ? " (no hay auriculares ni parlantes: solo en pantalla)"
+                     : settings.TheirVoice == "ninguna" ? "" : " y suena en tus auriculares";
         if (!conversing)
         {
-            return "ACTIVO: lo que suene en esta PC (la llamada, un video) aparece traducido acá" +
-                   (settings.TheirVoice == "ninguna" ? "" : " y suena en tus auriculares") +
+            return "ACTIVO: lo que suene en esta PC (la llamada, un video) aparece traducido acá" + sound +
                    ". Sin VB-CABLE, a vos te escuchan con tu voz de siempre, sin traducir.";
         }
         return "ACTIVO: hablá normalmente, te escuchan en " + HeardText() + " con tu voz. En la videollamada el " +
                "micrófono es \"CABLE Output\"" + (micSwitched ? " (ya quedó como predeterminado)" : " (elegilo en la app)") +
-               ". Lo que te dicen aparece acá y suena en tus auriculares.";
+               ". Lo que te dicen aparece acá" + sound + ".";
     }
 
     void RefreshCable()
@@ -1125,6 +1127,7 @@ sealed class MainForm : Form
         ReadSettings();
         int id = ++generation;
         wasActive = false;
+        subtitlesOnly = false;
         heardNow = null;
         recent.Clear();
         SetState(State.Preparing);
@@ -1649,6 +1652,10 @@ sealed class MainForm : Form
         if (text.Trim().Length == 0) return;
         recent.Add(text);
         if (recent.Count > 12) recent.RemoveAt(0);
+        if (text.Contains("lo que te dicen se ve solo en pantalla"))
+        {
+            subtitlesOnly = true;  // clonavoz no encontró auriculares ni parlantes
+        }
         if (state == State.Starting && (text.StartsWith("Listo:") || text.StartsWith("Escuchando...")))
         {
             SetState(State.Active);
