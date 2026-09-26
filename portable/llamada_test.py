@@ -2,7 +2,7 @@
 de cada lado (en Linux, con PulseAudio y Chromium):
 
     vos: voz artificial en español -> "mi_microfono" -> clonavoz -> "cable"
-         -> Chrome A (tu navegador: su micrófono es el cable, como CABLE Output)
+         -> Chrome A (tu navegador: su micrófono es "CABLE_Output", el cable)
     Chrome A <== videollamada WebRTC (Opus), como Meet ==> Chrome B
     la otra persona (Chrome B): voz artificial en inglés, después en portugués
     Chrome A la reproduce en sus parlantes ("parlantes_a") -> clonavoz
@@ -243,6 +243,11 @@ def setup_audio() -> str | None:
         if f"\t{sink}\t" not in existing:
             run("pactl", "load-module", "module-null-sink", f"sink_name={sink}",
                 f"sink_properties=device.description={sink}")
+    # El cable visto como micrófono, como "CABLE Output" en Windows (Chrome no
+    # ofrece los "monitores" de PulseAudio como micrófonos).
+    if "cable_output" not in run("pactl", "list", "short", "sources"):
+        run("pactl", "load-module", "module-remap-source", "master=cable.monitor", "source_name=cable_output",
+            "source_properties=device.description=CABLE_Output")
     run("pactl", "set-default-sink", "auriculares")  # la salida predeterminada: tus auriculares
     run("pactl", "set-default-source", "parlantes_b.monitor")  # nadie tiene que usar la predeterminada
     asoundrc = Path.home() / ".asoundrc"
@@ -386,7 +391,7 @@ def start_call(playwright):
         "--disable-features=WebRtcHideLocalIpsWithMdns",
     ]
     browsers, pages = [], []
-    for role, sink, source in (("A", "parlantes_a", "cable.monitor"), ("B", "parlantes_b", "parlantes_b.monitor")):
+    for role, sink, source in (("A", "parlantes_a", "cable_output"), ("B", "parlantes_b", "parlantes_b.monitor")):
         env = dict(os.environ, PULSE_SINK=sink, PULSE_SOURCE=source)
         browser = playwright.chromium.launch(executable_path=CHROMIUM, headless=False, args=args, env=env)
         page = browser.new_page()
