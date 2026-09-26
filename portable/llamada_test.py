@@ -249,7 +249,10 @@ def setup_audio() -> str | None:
         run("pactl", "load-module", "module-remap-source", "master=cable.monitor", "source_name=cable_output",
             "source_properties=device.description=CABLE_Output")
     run("pactl", "set-default-sink", "auriculares")  # la salida predeterminada: tus auriculares
-    run("pactl", "set-default-source", "parlantes_b.monitor")  # nadie tiene que usar la predeterminada
+    # El micrófono predeterminado es el cable, como lo deja ACTIVAR en Windows: así
+    # tu navegador (como Meet) lo usa sin elegir nada. Chrome toma el predeterminado
+    # del sistema, no el que se le indica en PULSE_SOURCE.
+    run("pactl", "set-default-source", "cable_output")
     asoundrc = Path.home() / ".asoundrc"
     before = asoundrc.read_text() if asoundrc.exists() else None
     asoundrc.write_text(ASOUNDRC)
@@ -391,8 +394,8 @@ def start_call(playwright):
         "--disable-features=WebRtcHideLocalIpsWithMdns",
     ]
     browsers, pages = [], []
-    for role, sink, source in (("A", "parlantes_a", "cable_output"), ("B", "parlantes_b", "parlantes_b.monitor")):
-        env = dict(os.environ, PULSE_SINK=sink, PULSE_SOURCE=source)
+    for role, sink in (("A", "parlantes_a"), ("B", "parlantes_b")):
+        env = dict(os.environ, PULSE_SINK=sink)  # dónde suena cada navegador
         browser = playwright.chromium.launch(executable_path=CHROMIUM, headless=False, args=args, env=env)
         page = browser.new_page()
         page.on("console", lambda message, role=role: print(f"    [{role}] {message.text}", flush=True))
@@ -481,12 +484,13 @@ def their_turn(result, since, clonavoz, b, heard, whisper, them) -> dict:
     if not check(clonavoz.wait_for(r"^ {10}es > ", since=said[0], timeout=60) is not None,
                  "muestra la traducción al español"):
         return result
-    # Esperar a que la traducción termine de sonar en tus auriculares.
+    # Esperar a que la traducción termine de sonar en tus auriculares (puede empezar
+    # antes de que termine de hablar: clonavoz traduce cada oración apenas la dice).
     start = None
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         audio_heard = heard.audio()
-        start = first_sound(audio_heard, RATE, heard.seconds(finished))
+        start = first_sound(audio_heard, RATE, heard.seconds(spoke))
         if start is not None and first_sound(audio_heard, RATE, len(audio_heard) / RATE - 1.5) is None:
             break
         time.sleep(0.3)
