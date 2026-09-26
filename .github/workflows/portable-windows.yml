@@ -188,7 +188,34 @@ jobs:
           PYTHONNOUSERSITE: "1"
         run: dist\clonavoz-portable\python\python.exe portable\audio_test.py dist\clonavoz-portable "%RUNNER_TEMP%\grabaciones" || exit /b 1
 
-      - name: "La ventana: ACTIVAR arranca la conversación sola y DETENER la para"
+      - name: Como en una PC con problemas, las dos puntas del cable quedan silenciadas
+        shell: powershell
+        run: |
+          Add-Type -Path dist\clonavoz-portable\AudioDefaults.cs
+          foreach ($flow in 0, 1) {
+            $id = [ClonavozAudio.Defaults]::FindCable($flow)
+            if (-not [ClonavozAudio.Defaults]::SetMute($id, $true)) { throw "no se pudo silenciar $id" }
+            if ([ClonavozAudio.Defaults]::IsMuted($id) -ne $true) { throw "no quedó silenciado: $id" }
+            "Silenciado: $([ClonavozAudio.Defaults]::Name($id))"
+          }
+
+      - name: "La ventana: si Windows no deja usar el micrófono, lo avisa y no arranca"
+        shell: powershell
+        timeout-minutes: 5
+        run: |
+          $key = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged"
+          $out = "$env:RUNNER_TEMP\grabaciones\ventana_sin_permiso.txt"
+          Set-ItemProperty -Path $key -Name Value -Value Deny
+          try {
+            $p = Start-Process -FilePath "dist\clonavoz-portable\Abrir clonavoz.exe" -ArgumentList "--prueba-activar" -RedirectStandardOutput $out -Wait -PassThru
+            Get-Content -Encoding UTF8 $out
+            if ($p.ExitCode -ne 1) { throw "no tenía que arrancar (código $($p.ExitCode))" }
+            if (-not (Select-String -Path $out -Encoding UTF8 -SimpleMatch "no deja usar el micrófono")) { throw "no lo avisó" }
+          } finally {
+            Set-ItemProperty -Path $key -Name Value -Value Allow
+          }
+
+      - name: "La ventana: ACTIVAR arregla el audio, arranca la conversación sola y DETENER la para"
         shell: cmd
         timeout-minutes: 10
         run: |
@@ -198,6 +225,17 @@ jobs:
           type "%RUNNER_TEMP%\grabaciones\ventana_activa.txt"
           if not "%CODIGO%"=="0" exit /b 1
           findstr /c:"ACTIVO" "%RUNNER_TEMP%\grabaciones\ventana_activa.txt" > nul || exit /b 1
+          findstr /c:"estaba silenciado" "%RUNNER_TEMP%\grabaciones\ventana_activa.txt" > nul || exit /b 1
+
+      - name: ACTIVAR dejó el cable sin silenciar
+        shell: powershell
+        run: |
+          Add-Type -Path dist\clonavoz-portable\AudioDefaults.cs
+          foreach ($flow in 0, 1) {
+            $id = [ClonavozAudio.Defaults]::FindCable($flow)
+            if ([ClonavozAudio.Defaults]::IsMuted($id) -ne $false) { throw "sigue silenciado (o no se sabe): $id" }
+          }
+          "Las dos puntas del cable quedaron sin silenciar."
 
       - uses: actions/upload-artifact@v4
         if: always()

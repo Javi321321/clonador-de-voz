@@ -19,6 +19,10 @@ Cómo usarlo
      aparece en la ventana;
    - si en esa PC falta el micrófono virtual VB-CABLE, te ofrece instalarlo
      (viene incluido, ver abajo);
+   - arregla lo típico que hace que no te escuchen: tu micrófono o el cable
+     silenciados en Windows (o con el volumen en cero), el cable puesto como
+     parlante predeterminado; y si Windows no deja que los programas usen el
+     micrófono, te abre la configuración para permitirlo;
    - pone "CABLE Output" como micrófono predeterminado de Windows, así la
      videollamada lo usa sin que elijas nada (si en la app elegiste otro
      micrófono, elegí "CABLE Output" en su configuración de audio);
@@ -31,7 +35,9 @@ Cómo usarlo
    siempre como predeterminado.
 
 Arriba en la ventana elegís los idiomas y las voces. "Ventana siempre
-visible" la deja encima de la videollamada, para leer los subtítulos. "Más
+visible" la deja encima de la videollamada, para leer los subtítulos, y con
+"Activar solo al abrir clonavoz" ni hace falta tocar ACTIVAR. Mientras está
+activo, la PC no se suspende. "Más
 opciones (menú)" abre el menú de consola (Iniciar.bat) con todo lo demás; por
 ejemplo, la opción 2 solo escucha traducido lo que suena en la PC (un video,
 una reunión) y la 4 te deja escuchar tu voz traducida.

@@ -37,6 +37,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using ClonavozAudio;
+using Microsoft.Win32;
 
 static class Launcher
 {
@@ -418,6 +419,8 @@ sealed class Settings
     public string TheirLangs = "en pt";   // idiomas en que es más probable que te hablen
     public string MyVoice = "auto";       // auto, natural (siempre clonada) o rapida
     public string TheirVoice = "parecida";  // parecida, clonada (con su permiso) o ninguna
+    public bool AutoStart;                // ACTIVAR solo al abrir la ventana
+    public bool OnTop;                    // ventana siempre visible
     readonly string datos;
 
     public Settings(string datos)
@@ -434,6 +437,11 @@ sealed class Settings
         if (words.Length >= 1) MyVoice = words[0];
         words = Words("su_voz.txt");
         if (words.Length >= 1) TheirVoice = words[0];
+        foreach (string word in Words("ventana.txt"))
+        {
+            if (word == "activar_al_abrir") AutoStart = true;
+            if (word == "siempre_visible") OnTop = true;
+        }
     }
 
     string[] Words(string name)
@@ -462,6 +470,7 @@ sealed class Settings
             Write("sus_idiomas.txt", TheirLangs);
             Write("voz.txt", MyVoice);
             Write("su_voz.txt", TheirVoice);
+            Write("ventana.txt", (AutoStart ? "activar_al_abrir " : "") + (OnTop ? "siempre_visible" : ""));
         }
         catch (Exception)
         {
@@ -828,9 +837,30 @@ sealed class MainForm : Form
         onTop.Text = "Ventana siempre visible (encima de la videollamada)";
         onTop.AutoSize = true;
         onTop.Anchor = AnchorStyles.Left;
-        onTop.CheckedChanged += delegate { TopMost = onTop.Checked; };
+        onTop.Checked = settings.OnTop;
+        TopMost = settings.OnTop;
+        onTop.CheckedChanged += delegate
+        {
+            TopMost = onTop.Checked;
+            settings.OnTop = onTop.Checked;
+            settings.Save();
+        };
         grid.Controls.Add(onTop, 2, 2);
         grid.SetColumnSpan(onTop, 2);
+
+        var autoStart = new CheckBox();
+        autoStart.Text = "Activar solo al abrir clonavoz";
+        autoStart.AutoSize = true;
+        autoStart.Anchor = AnchorStyles.Left;
+        autoStart.Checked = settings.AutoStart;
+        autoStart.CheckedChanged += delegate
+        {
+            settings.AutoStart = autoStart.Checked;
+            settings.Save();
+        };
+        tips.SetToolTip(autoStart, "Al abrir la ventana, hace lo mismo que tocar ACTIVAR.");
+        grid.Controls.Add(autoStart, 0, 3);
+        grid.SetColumnSpan(autoStart, 2);
 
         foreach (ComboBox box in new ComboBox[] { speakBox, heardBox, listenBox, myVoiceBox, theirVoiceBox })
         {
@@ -970,6 +1000,8 @@ sealed class MainForm : Form
         foreach (Control control in settingControls) control.Enabled = idle;
         recordButton.Enabled = idle;
         testButton.Enabled = idle;
+        KeepAwake(next == State.Active || next == State.Starting);
+        Text = next == State.Active ? "clonavoz: ACTIVO" : "clonavoz: traductor de voz con tu propia voz";
         if (next == State.Idle)
         {
             activate.Text = "ACTIVAR";
@@ -998,6 +1030,22 @@ sealed class MainForm : Form
             status.Text = ActiveText();
             TestOutput.Line("ACTIVO");
             if (test == "--prueba-activar") StopAfterTest();
+        }
+    }
+
+    [DllImport("kernel32.dll")]
+    static extern uint SetThreadExecutionState(uint flags);
+
+    // Que la PC no se suspenda en medio de una conversación.
+    static void KeepAwake(bool awake)
+    {
+        try
+        {
+            SetThreadExecutionState(awake ? 0x80000001u : 0x80000000u);  // ES_CONTINUOUS (+ ES_SYSTEM_REQUIRED)
+        }
+        catch (Exception)
+        {
+            // fuera de Windows
         }
     }
 
@@ -1076,6 +1124,12 @@ sealed class MainForm : Form
             }
             bool cable = EnsureCable(id);
             if (id != generation) return;
+            if (cable && !MicrophoneAllowed())
+            {
+                Aborted(id);
+                return;
+            }
+            FixAudio(cable);
             string theirVoice = settings.TheirVoice;
             string permission = "";
             if (theirVoice == "clonada")
@@ -1247,6 +1301,87 @@ sealed class MainForm : Form
         }
     }
 
+    // Lo que se puede arreglar solo antes de arrancar: las causas típicas de
+    // "no me escuchan" o "no escucho nada".
+    void FixAudio(bool cable)
+    {
+        try
+        {
+            string output = Defaults.FixOutput();
+            if (output != null)
+            {
+                Info("Tu salida de audio predeterminada era el cable virtual (así no escuchabas la PC, y la otra " +
+                     "persona se escucharía a sí misma): ahora es \"" + output + "\".");
+            }
+            if (cable)
+            {
+                MakeAudible("\"CABLE Output\"", Defaults.FindCable(1));
+                MakeAudible("\"CABLE Input\"", Defaults.FindCable(0));
+            }
+            FixMicrophone();
+        }
+        catch (Exception)
+        {
+            // sin servicio de audio: lo dirá clonavoz
+        }
+    }
+
+    void FixMicrophone()
+    {
+        try
+        {
+            string mic = Defaults.RealMicrophone(SavedMic);
+            if (mic != null) MakeAudible("Tu micrófono (" + Defaults.Name(mic) + ")", mic);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    void MakeAudible(string what, string id)
+    {
+        string fixes = Defaults.MakeAudible(id);
+        if (fixes != null) Info(what + " " + fixes + " en Windows: ya se arregló.");
+    }
+
+    // Windows puede no dejar que los programas usen el micrófono (Privacidad).
+    bool MicrophoneAllowed()
+    {
+        if (!MicrophoneBlocked()) return true;
+        if (Ask("Windows no deja que los programas usen el micrófono (Configuración > Privacidad > Micrófono): " +
+                "así clonavoz no te escucharía.\n\n¿Abrir esa configuración? Activá \"Acceso al micrófono\" y " +
+                "\"Permitir que las aplicaciones de escritorio accedan al micrófono\", y después tocá ACTIVAR de nuevo.",
+                false))
+        {
+            OpenFile("ms-settings:privacy-microphone");
+        }
+        Info("Windows no deja usar el micrófono: permitilo en Configuración > Privacidad > Micrófono y tocá " +
+             "ACTIVAR de nuevo.");
+        return false;
+    }
+
+    static bool MicrophoneBlocked()
+    {
+        const string store = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
+        return Denied(Registry.LocalMachine, store) || Denied(Registry.CurrentUser, store)
+            || Denied(Registry.CurrentUser, store + @"\NonPackaged");
+    }
+
+    static bool Denied(RegistryKey root, string path)
+    {
+        try
+        {
+            using (RegistryKey key = root.OpenSubKey(path))
+            {
+                return key != null && "Deny".Equals(key.GetValue("Value") as string, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     bool EnsureVoice(int id)
     {
         if (File.Exists(VoiceFile)) return true;
@@ -1262,6 +1397,8 @@ sealed class MainForm : Form
 
     bool RecordVoice(int id)
     {
+        if (!MicrophoneAllowed()) return false;
+        FixMicrophone();
         UI(delegate
         {
             reading.Text = "Leé en voz alta, con tu tono de siempre:\n\n" + ReadingText(settings.Speak);
@@ -1414,6 +1551,8 @@ sealed class MainForm : Form
 
     void TestMicrophone(int id)
     {
+        if (!MicrophoneAllowed()) return;
+        FixMicrophone();
         UI(delegate { status.Text = "Probando: hablá durante 8 segundos, el medidor de abajo tiene que moverse con tu voz."; });
         RunAndWait(id, "test-audio" + (CableReady() ? "" : " --skip-output"), null);
     }
@@ -1642,6 +1781,7 @@ sealed class MainForm : Form
     {
         base.OnShown(e);
         RestoreMicrophone();  // si la última vez se cerró de golpe (ej. se apagó la PC) sin volver a ponerlo
+        if (test == null && settings.AutoStart) StartActivation();
         if (test != null) Report();
         if (test == "--prueba")
         {

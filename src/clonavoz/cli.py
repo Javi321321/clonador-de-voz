@@ -370,11 +370,13 @@ def _resolve_headphones(requested: int | None) -> audio_devices.AudioDevice | No
         return None
     if not audio_devices.is_virtual_output(device.name):
         return device
+    # (sin el "Microsoft Sound Mapper": apunta al predeterminado, o sea al cable)
     others = [
         dev
         for dev in devices
         if dev.max_output_channels > 0
         and not audio_devices.is_virtual_output(dev.name)
+        and not audio_devices.is_default_alias(dev.name)
         and dev.hostapi == device.hostapi
     ]
     if not others:
@@ -385,11 +387,12 @@ def _resolve_headphones(requested: int | None) -> audio_devices.AudioDevice | No
             "--headphones-device: ver `clonavoz devices`)."
         )
         return None
+    best = audio_devices.best_listening_device(others)
     print(
         f"Tu salida predeterminada es el micrófono virtual ({device.name}): lo que te dicen suena en "
-        f"[{others[0].index}] {others[0].name}. Para elegir otra: --headphones-device."
+        f"[{best.index}] {best.name}. Para elegir otra: --headphones-device."
     )
-    return others[0]
+    return best
 
 
 def _their_voice(args: argparse.Namespace) -> str:

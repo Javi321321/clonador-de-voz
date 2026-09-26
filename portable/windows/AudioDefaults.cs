@@ -68,6 +68,25 @@ namespace ClonavozAudio
     {
     }
 
+    // El volumen y el silencio de un dispositivo (el que ves en Configuración > Sonido).
+    [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioEndpointVolume
+    {
+        [PreserveSig] int RegisterControlChangeNotify(IntPtr notify);
+        [PreserveSig] int UnregisterControlChangeNotify(IntPtr notify);
+        [PreserveSig] int GetChannelCount(out uint count);
+        [PreserveSig] int SetMasterVolumeLevel(float levelDB, ref Guid context);
+        [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid context);
+        [PreserveSig] int GetMasterVolumeLevel(out float levelDB);
+        [PreserveSig] int GetMasterVolumeLevelScalar(out float level);
+        [PreserveSig] int SetChannelVolumeLevel(uint channel, float levelDB, ref Guid context);
+        [PreserveSig] int SetChannelVolumeLevelScalar(uint channel, float level, ref Guid context);
+        [PreserveSig] int GetChannelVolumeLevel(uint channel, out float levelDB);
+        [PreserveSig] int GetChannelVolumeLevelScalar(uint channel, out float level);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid context);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+    }
+
     // Interfaz sin documentar (la usan desde Windows 7 las herramientas que
     // cambian el dispositivo predeterminado): solo importa SetDefaultEndpoint.
     [Guid("F8679F50-850A-41CF-9C72-430F290290C8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -221,6 +240,13 @@ namespace ClonavozAudio
             return FindCable(0) != null && FindCable(1) != null;
         }
 
+        // Una punta de VB-CABLE (y no otro dispositivo virtual, como los de Voicemeeter).
+        public static bool IsCable(string name)
+        {
+            return name != null && (name.StartsWith("CABLE", StringComparison.OrdinalIgnoreCase)
+                || name.IndexOf("VB-Audio Virtual Cable", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
         public static bool IsVirtual(string name)
         {
             return name != null && (name.StartsWith("CABLE", StringComparison.OrdinalIgnoreCase)
@@ -258,6 +284,127 @@ namespace ClonavozAudio
                 if (hr != 0) result = hr;
             }
             return result;
+        }
+
+        // --- Que se escuche: el silencio y el volumen de Windows.
+
+        static IAudioEndpointVolume Volume(string id)
+        {
+            IMMDevice device;
+            if (id == null || Enumerator().GetDevice(id, out device) != 0 || device == null) return null;
+            var iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+            IntPtr pointer;
+            if (device.Activate(ref iid, 23, IntPtr.Zero, out pointer) != 0 || pointer == IntPtr.Zero) return null;  // CLSCTX_ALL
+            try
+            {
+                return (IAudioEndpointVolume)Marshal.GetObjectForIUnknown(pointer);
+            }
+            finally
+            {
+                Marshal.Release(pointer);
+            }
+        }
+
+        // Si el dispositivo está silenciado en Windows, o con el volumen casi en
+        // cero (típico con la tecla de silenciar de las notebooks), lo arregla.
+        // Devuelve qué arregló, o null si estaba bien (o no se pudo saber).
+        public static string MakeAudible(string id)
+        {
+            try
+            {
+                IAudioEndpointVolume volume = Volume(id);
+                if (volume == null) return null;
+                var context = Guid.Empty;
+                var fixes = new List<string>();
+                bool muted;
+                if (volume.GetMute(out muted) == 0 && muted && volume.SetMute(false, ref context) == 0)
+                {
+                    fixes.Add("estaba silenciado");
+                }
+                float level;
+                if (volume.GetMasterVolumeLevelScalar(out level) == 0 && level < 0.1f
+                    && volume.SetMasterVolumeLevelScalar(1f, ref context) == 0)
+                {
+                    fixes.Add("tenía el volumen en " + Math.Round(level * 100) + "%");
+                }
+                return fixes.Count > 0 ? string.Join(" y ", fixes.ToArray()) : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        // Si está silenciado (null si no se sabe). Y silenciarlo, para las pruebas.
+        public static bool? IsMuted(string id)
+        {
+            try
+            {
+                IAudioEndpointVolume volume = Volume(id);
+                bool muted;
+                if (volume == null || volume.GetMute(out muted) != 0) return null;
+                return muted;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        public static bool SetMute(string id, bool mute)
+        {
+            try
+            {
+                IAudioEndpointVolume volume = Volume(id);
+                var context = Guid.Empty;
+                return volume != null && volume.SetMute(mute, ref context) == 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // Si tu salida de audio predeterminada es el cable virtual (así no
+        // escuchás la PC ni la llamada, y la otra persona se escucharía a sí
+        // misma), pone otra de verdad. Devuelve su nombre, o null si no hacía
+        // falta (o no hay otra).
+        public static string FixOutput()
+        {
+            string console = Get(0, 0);
+            string calls = Get(0, 2);
+            bool consoleCable = IsCable(Name(console));
+            bool callsCable = IsCable(Name(calls));
+            if (!consoleCable && !callsCable) return null;
+            string real = BestOutput();
+            if (real == null) return null;
+            if (consoleCable && (Set(real, 0) != 0 || Set(real, 1) != 0)) return null;
+            if (callsCable && Set(consoleCable ? real : console, 2) != 0) return null;
+            return Name(real);
+        }
+
+        // Una salida de verdad: mejor auriculares, si no parlantes, si no cualquiera
+        // (el HDMI de un monitor sin parlantes, al final).
+        static string BestOutput()
+        {
+            string[][] preferences = new string[][]
+            {
+                new string[] { "auricular", "headphone", "headset", "casque", "kopfh", "fone" },
+                new string[] { "altavoc", "speaker", "parlante", "alto-falante", "haut-parleur", "lautsprecher" },
+                new string[] { "" },
+            };
+            foreach (string[] words in preferences)
+            {
+                foreach (string[] device in List(0))
+                {
+                    if (IsVirtual(device[1])) continue;
+                    foreach (string word in words)
+                    {
+                        if (device[1].IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0) return device[0];
+                    }
+                }
+            }
+            return null;
         }
 
         // --- Para el instalador de VB-CABLE: al instalarlo, Windows a veces lo
@@ -298,6 +445,7 @@ namespace ClonavozAudio
             if (console != null && console != cable)
             {
                 string calls = communications != null && communications != cable ? communications : console;
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(saved)));
                 File.WriteAllLines(saved, new string[] { console, calls }, new UTF8Encoding(false));
                 real = Name(console);
             }
@@ -311,6 +459,17 @@ namespace ClonavozAudio
             }
             if (Set(cable) != 0) return null;
             return real ?? "";
+        }
+
+        // Tu micrófono de verdad: el predeterminado si no es el cable; si no, el
+        // anotado por UseCable; si no, cualquiera conectado.
+        public static string RealMicrophone(string saved)
+        {
+            string console = Get(1, 0);
+            if (console != null && !IsCable(Name(console))) return console;
+            string[] ids = ReadIds(saved);
+            if (ids.Length > 0 && IsActive(ids[0])) return ids[0];
+            return FirstRealMicrophone();
         }
 
         // Vuelve a poner el micrófono de antes. Devuelve true si quedó como estaba

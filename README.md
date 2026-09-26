@@ -332,16 +332,23 @@ te pregunta solo lo que tenés que decidir vos:
    poner los que tenías. El mismo instalador lo quita ("Remove Driver"), para no dejar
    nada en una PC prestada. Si decís que no, igual te traduce lo que te dicen.
 4. Si elegiste escuchar a los demás con su voz clonada, te pregunta si te dieron permiso.
-5. Pone "CABLE Output" como micrófono predeterminado de Windows, así la videollamada lo
+5. Arregla lo típico que hace que no te escuchen: tu micrófono o las puntas del cable
+   silenciados en Windows (o con el volumen en cero, como con la tecla de silenciar de
+   las notebooks) y el cable puesto como parlante predeterminado (así no escuchás la PC y
+   la otra persona se escucharía a sí misma). Si Windows no deja que los programas usen
+   el micrófono (Privacidad), te abre esa configuración para permitirlo.
+6. Pone "CABLE Output" como micrófono predeterminado de Windows, así la videollamada lo
    usa sin que elijas nada (si en la app elegiste otro micrófono, elegí "CABLE Output"),
    y le pasa a clonavoz tu micrófono de verdad.
-6. Arranca la conversación en las dos direcciones: lo que te dicen aparece traducido en
+7. Arranca la conversación en las dos direcciones: lo que te dicen aparece traducido en
    la ventana, como subtítulos (lo tuyo también, más chico), y suena en tus auriculares.
+   Mientras está activo, la PC no se suspende.
 
 **DETENER** (o cerrar la ventana) lo para y vuelve a poner tu micrófono de siempre como
 predeterminado; si la PC se apaga de golpe, lo vuelve a poner la próxima vez que abrís
 clonavoz. Arriba en la ventana elegís los idiomas y las voces; "Ventana siempre visible" la
-deja encima de la videollamada. "Más opciones (menú)" abre el menú de consola de siempre
+deja encima de la videollamada, y con "Activar solo al abrir clonavoz" ni hace falta tocar
+ACTIVAR. "Más opciones (menú)" abre el menú de consola de siempre
 (`Iniciar.bat`), con todo lo demás: **2** para solo escuchar traducido lo que suena en la
 PC, **3** para solo traducir tu voz, **4** para escuchar tu traducción vos mismo, etc. Si
 bajás una versión nueva del .exe, actualiza el programa y conserva tu voz y los modelos.
@@ -377,8 +384,10 @@ prueba aparte (`portable/loopback_test.py`). Las
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
 máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 6 del
 menú). También se prueba la ventana: se abre (con una captura de pantalla en el artefacto
-`ventana-windows`), y en la máquina con VB-CABLE **ACTIVAR** tiene que arrancar la
-conversación sola y **DETENER** pararla y dejar el micrófono predeterminado como estaba.
+`ventana-windows`), y en la máquina con VB-CABLE, con las dos puntas del cable silenciadas
+a propósito, **ACTIVAR** tiene que activarlas y arrancar la conversación sola, y **DETENER**
+pararla y dejar el micrófono predeterminado como estaba; y si Windows no deja usar el
+micrófono, tiene que avisarlo y no arrancar.
 
 Para entender lo que decís se usa **Parakeet** (NVIDIA) si hablás uno de sus 25 idiomas
 europeos (español, inglés, portugués, francés, alemán, italiano, ruso, ucraniano, polaco,

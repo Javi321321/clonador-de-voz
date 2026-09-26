@@ -35,13 +35,13 @@ _VIRTUAL_DEVICE_HINTS = {
 # `is_virtual_mic_input`) porque también existen "CABLE-A Output", etc.
 _VIRTUAL_INPUT_HINTS = ("blackhole", "soundflower", "clonavoz", "monitor of", "vb-audio")
 
-# Entradas que no son un micrófono real: el "mapeador" de Windows (que apunta
-# al predeterminado, o sea al propio cable virtual; su nombre cambia según el
-# idioma de Windows) y las mezclas estéreo.
-_NOT_A_MICROPHONE = (
-    "mapp", "mapea", "asignador", "primary", "primari", "stereo mix", "mezcla est", "what u hear", "loopback",
-    "monitor",
-)
+# Dispositivos que no son uno de verdad sino "el predeterminado de Windows": el
+# "mapeador" de MME y el controlador primario de DirectSound (su nombre cambia
+# según el idioma de Windows). Si el predeterminado es el cable virtual, apuntan
+# al cable.
+_DEFAULT_ALIASES = ("mapp", "mapea", "asignador", "primary", "primari")
+# Entradas que no son un micrófono real: esas y las mezclas estéreo.
+_NOT_A_MICROPHONE = (*_DEFAULT_ALIASES, "stereo mix", "mezcla est", "what u hear", "loopback", "monitor")
 _MICROPHONE_WORDS = ("mic", "headset", "auricular")
 
 
@@ -99,6 +99,28 @@ def virtual_mic_name(output_device_name: str) -> str | None:
     if "clonavoz" in lowered:
         return "Monitor of ClonaVoz_Mic"
     return None
+
+
+def is_default_alias(name: str) -> bool:
+    """True si `name` no es un dispositivo sino el predeterminado de Windows
+    (ej. "Microsoft Sound Mapper - Output")."""
+    lowered = name.lower()
+    return any(word in lowered for word in _DEFAULT_ALIASES)
+
+
+# Para elegir dónde escuchás: mejor auriculares, si no parlantes, si no cualquier
+# salida (ej. el HDMI de un monitor, que quizás no tiene parlantes).
+_HEADPHONE_WORDS = ("auricular", "headphone", "headset", "casque", "kopfh", "fone")
+_SPEAKER_WORDS = ("altavoc", "speaker", "parlante", "alto-falante", "haut-parleur", "lautsprecher")
+
+
+def best_listening_device(devices: list[AudioDevice]) -> AudioDevice | None:
+    """De estas salidas, la mejor para escuchar vos: auriculares, parlantes u otra."""
+    for words in (_HEADPHONE_WORDS, _SPEAKER_WORDS):
+        for dev in devices:
+            if any(word in dev.name.lower() for word in words):
+                return dev
+    return devices[0] if devices else None
 
 
 def is_virtual_output(name: str) -> bool:
