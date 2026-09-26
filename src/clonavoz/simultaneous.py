@@ -67,3 +67,22 @@ class ClauseSplitter:
             return None
         # Un poquito antes de que empiece la palabra siguiente.
         return max(1, int((at - 0.04) * self._rate)), text
+
+
+def clauses(text: str, min_words: int = 3) -> list[str]:
+    """`text` en partes, cortado después de cada coma o punto, sin partes de
+    menos de `min_words` palabras: así la primera parte puede empezar a sonar
+    mientras se generan las demás."""
+    parts: list[str] = []
+    current = ""
+    for word in text.split():
+        current = f"{current} {word}".strip()
+        if word[-1] in _PUNCTUATION and len(current.split()) >= min_words:
+            parts.append(current)
+            current = ""
+    if current:
+        if parts and len(current.split()) < min_words:
+            parts[-1] = f"{parts[-1]} {current}"
+        else:
+            parts.append(current)
+    return parts

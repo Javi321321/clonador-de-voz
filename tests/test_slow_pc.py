@@ -137,12 +137,12 @@ def test_a_slow_parakeet_is_replaced_by_whisper(monkeypatch):
     p.speed = SpeedCheck(asr=0.7, voice=0.3)
     switched = []
 
-    def use_whisper():
+    def use_fast_asr():
         switched.append(True)
         p.asr_name = "Whisper tiny"
         p.simultaneous = p.translate_while_speaking = False
 
-    monkeypatch.setattr(p, "_use_whisper", use_whisper, raising=False)
+    monkeypatch.setattr(p, "_use_fast_asr", use_fast_asr, raising=False)
     monkeypatch.setattr(p, "_measure_asr", lambda: 0.25, raising=False)
     p._adapt_to_speed("Hello.")
     assert switched and p.speed.asr == 0.25
@@ -211,6 +211,23 @@ def test_if_int8_does_not_load_it_uses_the_normal_voice(monkeypatch, tmp_path):
     voice = pocket_voice.PocketVoice(tmp_path / "mi_voz.wav", int8=True)
     voice._model("en")
     assert loads == [True, False] and voice.int8 is False
+
+
+def test_loading_int8_shows_no_warnings(monkeypatch):
+    import warnings
+
+    class FakeModel:
+        @staticmethod
+        def load_model(quantize=False, **kwargs):
+            warnings.warn("torch.quantize_per_tensor ... deprecated", UserWarning, stacklevel=1)
+            warnings.warn("torch.ao.quantization is deprecated", DeprecationWarning, stacklevel=1)
+            return FakeModel()
+
+    monkeypatch.setattr(pocket_voice, "_import_pocket", lambda: (FakeModel, None))
+    with warnings.catch_warnings(record=True) as shown:
+        warnings.simplefilter("always")
+        pocket_voice.load_model(True, language="english")
+    assert not shown
 
 
 # --- Whisper con la ventana corta ---

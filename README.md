@@ -23,7 +23,8 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
    **unos 3 a 4 segundos** después de que terminaste
    ([detalles](#traducción-simultánea-la-menor-demora-posible)). En una notebook muy
    lenta, tu voz clonada no llega a generarse en vivo: clonavoz lo detecta y usa una voz
-   rápida de tono parecido al tuyo ([ver](#notebooks-de-muy-bajo-rendimiento)).
+   rápida de tono parecido al tuyo, y así cada frase también empieza a sonar ~1 segundo
+   después de decirla ([ver](#notebooks-de-muy-bajo-rendimiento)).
 2. **Tu voz clonada suena más natural en 7 idiomas y funciona en ~37.** La *voz natural*
    (inglés, español, francés, alemán, portugués, italiano y neerlandés) genera cada frase
    directamente con tu voz y es la que más se parece a vos; hay que descargarla una vez
@@ -40,7 +41,7 @@ clonación) enteramente en tu máquina, sin nube. Eso tiene dos consecuencias im
 ## Cómo funciona
 
 ```
-tu micrófono → VAD (detecta pausas) → Parakeet o Whisper (ASR) → Opus-MT o NLLB-200 (traducción)
+tu micrófono → VAD (detecta pausas) → Parakeet, Vosk o Whisper (ASR) → Opus-MT o NLLB-200 (traducción)
    → Pocket TTS generando la frase con tu voz            ← voz natural (si está descargada)
      o Piper (voz rápida) + OpenVoice (le pone tu timbre) ← voz liviana
      o XTTS-v2 clonando tu voz                            ← opcional, con GPU NVIDIA
@@ -110,36 +111,48 @@ apuro para alcanzarte.
 clonavoz mide tu PC cada vez que arranca (cuánto tarda en entender lo que decís, con tu
 propia muestra de voz, y en generar la traducción con tu voz) y se adapta sola:
 
+- **Reconocimiento en streaming (Vosk)**: en PCs lentas o con menos de 6 GB de RAM,
+  entiende mientras hablás, así que al terminar la frase el texto está listo en ~15 ms
+  (Whisper recién empieza ahí: ~0.7 s en una notebook lenta). Y se equivoca menos que
+  Whisper `tiny`: 10.3% de palabras mal contra 19.4% en 10 minutos de grabaciones reales
+  en español, y 7.4% contra 22.1% en frases cortas. No pone puntuación: las preguntas se
+  reconocen por cómo empiezan (qué, cómo, podés, me puede...). Como no hay que esperar a
+  reconocer, la frase termina con una pausa de 0.35 s en vez de 0.5 s. Habla español,
+  inglés, francés, alemán, italiano, neerlandés, ruso y polaco (en los demás, Whisper).
 - **Si tu voz clonada no llega a generarse en vivo, usa la voz rápida**: una voz de tono
   parecido al tuyo (grave o aguda), sin clonar, unas 10 veces más rápida. Te avisa al
   arrancar, con los números de tu PC. Si preferís tu voz clonada igual, aunque la
   traducción tarde más: opción **10** del menú de la versión portable ("Elegir la voz"),
   o `--voice-engine natural`.
-- **Whisper con ventana corta**: Whisper analiza siempre 30 s de audio, aunque digas una
-  frase de 1 s. Para frases de hasta 7 s, clonavoz le da una ventana de 10 s: en una
+- **Whisper con ventana corta** (en los idiomas sin Vosk): Whisper analiza siempre 30 s
+  de audio, aunque digas una frase de 1 s. Para frases de hasta 7 s, clonavoz le da una
+  ventana de 10 s: en una
   notebook lenta entiende hasta 4 veces más rápido (en 181 pedazos de grabaciones reales,
   28.4% de palabras distintas a las de Parakeet, contra 27.5% con la ventana normal; si
   el resultado parece dudoso, se usa la ventana normal).
-- **Parakeet** (el reconocimiento más preciso) se cambia por Whisper si en esa PC tarda
-  más de medio segundo por cada segundo de voz.
+- **Parakeet** (el reconocimiento más preciso) se cambia por Vosk (o Whisper) si en esa
+  PC tarda más de medio segundo por cada segundo de voz.
 - Si reconocer mientras hablás no deja procesador para la voz, traduce en cada pausa.
 - Si hablás de corrido, a medida que la frase se alarga alcanza con una pausa más corta
   para cortarla (leyendo o hablando rápido casi no hay pausas largas).
 - **Voz natural int8** en procesadores con AVX2 (casi todos desde 2013; no los Celeron y
   Pentium más baratos): se parece igual a vos y suena igual de natural (0.928 contra
   0.929 y 3.91 contra 3.90), pero tarda ~25% menos.
-- Con 4 GB de RAM se usa Whisper (Parakeet necesita 6 GB): clonavoz ocupa ~1 GB con la
-  voz rápida y ~1.3 GB con tu voz clonada.
+- Con 4 GB de RAM se usa Vosk (o Whisper; Parakeet necesita 6 GB): clonavoz ocupa ~1 GB
+  con la voz rápida y ~1.3 GB con tu voz clonada.
+- Con las voces que no suenan mientras se generan (la rápida y la liviana), la traducción
+  se genera de a partes, cortada en las comas: la primera empieza a sonar mientras se
+  generan las demás.
 
 Medido en una notebook débil simulada, como una con Celeron N4020 (muy común en las
 notebooks más baratas: 2 núcleos lentos, sin AVX) y 4 GB de RAM:
 
 | | Antes | Ahora, voz automática (pasa a la rápida) | Ahora, siempre tu voz clonada |
 |---|---|---|---|
-| Conversación (19 s): la primera frase empieza a sonar | 6.2 s después de decirla | 1.8 s | 4.6 s |
-| ... y la traducción termina | 36 s después de que terminaste | 6.3 s | 23 s |
-| Hablando de corrido (28 s): empieza a sonar | — | a los 6.7 s | — |
-| ... y la traducción termina | — | 6.6 s después de que terminaste | — |
+| Conversación (19 s): la primera frase empieza a sonar | 6.2 s después de decirla | **1.0 s** | 4.2 s |
+| ... y la traducción termina | 36 s después de que terminaste | 4.7 s | 20 s |
+| Hablando de corrido (28 s): empieza a sonar | — | 5.6 s después de empezar | — |
+| ... y la traducción termina | — | 3.7 s después de que terminaste | — |
 
 En esa notebook tu voz clonada tarda 1.9 s en generarse por cada segundo de voz: no
 puede ir en vivo. Para tu voz clonada sin demora hace falta un procesador bastante más
@@ -188,10 +201,10 @@ docker compose run --rm clonavoz devices
 En Windows/macOS, Docker Desktop no da acceso confiable al audio en tiempo real del
 host — en esos sistemas usa `setup.ps1`/`setup.sh` en lugar de Docker.
 
-La primera vez se descargan los modelos (Parakeet y Whisper, los traductores Opus-MT y
-NLLB-200, el conversor de OpenVoice, la voz de Piper de cada idioma que uses y, si la
-elegís, la voz natural; con XTTS-v2, también ese modelo): unos 2.4 GB, varios GB más con
-XTTS-v2. Necesitas internet solo para esa
+La primera vez se descargan los modelos (Parakeet, Vosk y Whisper, los traductores
+Opus-MT y NLLB-200, el conversor de OpenVoice, la voz de Piper de cada idioma que uses y,
+si la elegís, la voz natural; con XTTS-v2, también ese modelo): unos 2.5 GB, varios GB
+más con XTTS-v2. Necesitas internet solo para esa
 descarga inicial; después, todo funciona sin conexión.
 
 ### Instalación manual (alternativa a los scripts)
@@ -225,13 +238,13 @@ necesita tarjeta gráfica.
 
 **Usarla:** extraé el zip donde quieras (por ejemplo, en el pendrive) y hacé doble clic
 en `Iniciar.bat`. Aparece un menú:
-1. La primera vez: opción **6** para descargar los modelos (~2.4 GB, necesita internet una
+1. La primera vez: opción **6** para descargar los modelos (~2.5 GB, necesita internet una
    sola vez; ahí te pide el token para la [voz natural](#voz-natural-recomendada), o Enter
    para saltearla) y opción **2** para grabar tu voz.
 2. Opción **1** para usarlo en una videollamada (elegí "CABLE Output" como micrófono en la
    app), u opción **4** para escuchar la traducción vos mismo en auriculares.
 
-Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2.4 GB) y al menos
+Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2.5 GB) y al menos
 4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca bastante
 más rápido que desde uno USB 2.0.
 
@@ -443,6 +456,8 @@ cambio de un poco más de demora.
 - Whisper (faster-whisper): MIT.
 - Opus-MT (Universidad de Helsinki, `Helsinki-NLP/opus-mt-*`): Apache-2.0. Se convierte
   a CTranslate2 al descargarlo.
+- Vosk y sus modelos chicos (`vosk-model-small-*`, de https://alphacephei.com/vosk/models):
+  Apache-2.0.
 - NLLB-200: CC-BY-NC 4.0 (uso no comercial). Se usa una conversión a CTranslate2 del
   mismo modelo, con la misma licencia; solo para los pares de idiomas sin Opus-MT.
 - OpenVoice V2 (conversor de timbre, incluido en `openvoice.py`): MIT.

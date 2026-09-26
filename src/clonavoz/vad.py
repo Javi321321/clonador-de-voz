@@ -12,6 +12,10 @@ entendiera y tradujera mal).
 Con un `splitter` (ver `simultaneous.py`), además, mientras hablás se va
 reconociendo lo que decís y se corta apenas termina una idea (una coma, un
 punto), para traducirla sin esperar al final: como un intérprete simultáneo.
+
+Con un `stream` (un reconocedor que va entendiendo a medida que llega el
+audio, como Vosk), se le pasa cada bloque mientras hablás y cada frase sale
+ya con su texto.
 """
 from __future__ import annotations
 
@@ -72,11 +76,15 @@ class StreamingVAD:
 
     `splitter(audio, final)`: opcional; recibe el audio de la frase en curso y
     devuelve `(muestras, texto)` para cortarla ahí (ya reconocida) o None.
+    `stream`: opcional; un reconocedor en streaming (`accept`, `text`).
+    `end_silence_ms`: la pausa que termina una frase (si no, `_SILENCE_MS_TO_END`).
     Con `final=True` se le pregunta si la frase, que está en una pausa, ya
     terminó. `model` es para las pruebas: cualquier cosa que, llamada con un
     bloque de audio, devuelva la probabilidad de que sea voz."""
 
-    def __init__(self, max_utterance_seconds: float = 5.0, model=None, splitter=None) -> None:
+    def __init__(
+        self, max_utterance_seconds: float = 5.0, model=None, splitter=None, stream=None, end_silence_ms: int | None = None
+    ) -> None:
         threads = torch.get_num_threads()
         self._model = model if model is not None else _load_silero()
         # silero-vad hace torch.set_num_threads(1) al importarse, y eso vale
@@ -84,12 +92,13 @@ class StreamingVAD:
         # núcleo y cada frase tardaría el doble o más en salir traducida.
         torch.set_num_threads(threads)
         self._splitter = splitter
+        self._stream = stream  # accept(bloque) mientras hablás; text() al cortar
         # Reconocer mientras hablás cuesta CPU: en una PC lenta se apaga y el
         # splitter solo se usa para ver si la oración terminó (ver pipeline).
         self.split_while_speaking = True
         self._soft_max = int(max_utterance_seconds * 16000)
         self._hard_max = int(max_utterance_seconds * _HARD_MAX_FACTOR * 16000)
-        self._end_frames = int(np.ceil(_SILENCE_MS_TO_END / _FRAME_MS))
+        self._end_frames = int(np.ceil((end_silence_ms or _SILENCE_MS_TO_END) / _FRAME_MS))
         self._early_end_frames = int(np.ceil(_EARLY_END_MS / _FRAME_MS))
         self._pause_frames = int(np.ceil(_SHORT_PAUSE_MS / _FRAME_MS))
         self._split_every = int(_SPLIT_EVERY_MS / _FRAME_MS)
@@ -121,9 +130,13 @@ class StreamingVAD:
                 self._samples = sum(len(f) for f in self._buffer)
                 self._preroll.clear()
                 self._silent_frames = 0
+                if self._stream is not None:
+                    self._stream.accept(np.concatenate(self._buffer))
             return None
 
         self._buffer.append(frame)
+        if self._stream is not None:
+            self._stream.accept(frame)
         self._probs.append(prob)
         self._samples += len(frame)
         self._since_split += 1
@@ -175,7 +188,11 @@ class StreamingVAD:
         return np.concatenate(self._buffer) if self._buffer else np.zeros(0, dtype=np.float32)
 
     def _cut(self, samples: int, text: str | None) -> Utterance:
-        """Libera el audio hasta `samples` y sigue con el resto como frase en curso."""
+        """Libera el audio hasta `samples` y sigue con el resto como frase en curso.
+        (Con un `stream`, el texto es todo lo que entendió hasta acá: las pocas
+        palabras del resto quedan en esta frase y no se repiten en la otra.)"""
+        if text is None and self._stream is not None:
+            text = self._stream.text()
         audio = self._audio()
         samples = max(0, min(samples, len(audio)))
         rest = audio[samples:]
@@ -198,6 +215,8 @@ class StreamingVAD:
         return self._cut(samples, None)
 
     def _flush(self, text: str | None = None) -> Utterance:
+        if text is None and self._stream is not None:
+            text = self._stream.text()
         # Del silencio del final se deja solo un poquito (a Whisper no le sirve más).
         keep = len(self._buffer) - max(0, self._silent_frames - 3)
         audio = np.concatenate(self._buffer[:keep]) if self._buffer else np.array([], dtype=np.float32)

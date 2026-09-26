@@ -36,7 +36,8 @@ from .audio_devices import SAMPLE_RATE
 from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream, resample
 from .config import PerformanceProfile
 from .languages import Language, get_language
-from .simultaneous import ClauseSplitter
+from .punctuation import restore as restore_punctuation
+from .simultaneous import ClauseSplitter, clauses
 from .timestretch import SpeedUp, shorten_pauses, speed_up
 from .translate import Translator
 from .vad import StreamingVAD
@@ -56,6 +57,7 @@ _MAX_LOAD_WITH_PARTIALS = 1.4
 # esta PC tarda más que esto por segundo de voz, se usa Whisper (en una PC
 # lenta, 3 veces más rápido con frases cortas, ver asr._transcribe_short).
 _PARAKEET_MAX_SECONDS = 0.5
+_STREAMING_END_SILENCE_MS = 350
 
 
 @dataclass
@@ -128,8 +130,7 @@ class LiveVoicePipeline:
         # mientras seguís hablando (ver simultaneous.py).
         self.simultaneous = self._asr.can_split
         self.translate_while_speaking = self.simultaneous  # se apaga si la PC no da (ver _warm_up)
-        splitter = ClauseSplitter(self._asr.transcribe_timed) if self.simultaneous else None
-        self._vad = StreamingVAD(max_utterance_seconds=profile.max_utterance_seconds, splitter=splitter)
+        self._vad = self._make_vad()
         self._translator = Translator(
             self.source_language.nllb_code,
             self.target_language.nllb_code,
@@ -158,6 +159,22 @@ class LiveVoicePipeline:
         self._last_error = ""
         self._threads: list[threading.Thread] = []
         self._warm_up()
+
+    def _make_vad(self) -> StreamingVAD:
+        """Con Parakeet, corta cada idea mientras hablás (ver simultaneous.py). Con
+        Vosk, le va pasando el audio mientras hablás: al terminar la frase ya
+        está entendida. Con Whisper, en las pausas: sus puntos no son
+        confiables para cortar antes (los pone también al respirar en medio de
+        una oración, y en una PC lenta eso daba pedazos sueltos mal traducidos)."""
+        splitter = ClauseSplitter(self._asr.transcribe_timed) if self.simultaneous else None
+        stream = self._asr.stream() if self._asr.streaming else None
+        return StreamingVAD(
+            max_utterance_seconds=self.profile.max_utterance_seconds,
+            splitter=splitter,
+            stream=stream,
+            # Con Vosk no hay que esperar a reconocer: la frase termina con una pausa más corta.
+            end_silence_ms=_STREAMING_END_SILENCE_MS if stream is not None else None,
+        )
 
     def _warm_up(self) -> None:
         """Una pasada de prueba por cada modelo al arrancar: la primera llamada
@@ -226,7 +243,7 @@ class LiveVoicePipeline:
         speed = self.speed
         if self._asr.name == "Parakeet" and speed.asr is not None and speed.asr > _PARAKEET_MAX_SECONDS:
             self.slow_parakeet = speed.asr
-            self._use_whisper()
+            self._use_fast_asr()
             self.speed = speed = SpeedCheck(self._measure_asr(), speed.voice, speed.rhythm)
         if (
             self._allow_engine_fallback
@@ -247,7 +264,9 @@ class LiveVoicePipeline:
             self.stream_playback = speed.rhythm < 0.75
             # Mientras hablás, el reconocimiento le quita CPU a la voz: cuanto más
             # justa viene la PC, más colchón antes de empezar a sonar cada frase.
-            self.output.STREAM_CUSHION_SECONDS = 0.15 if speed.rhythm < 0.4 else 0.3 if speed.rhythm < 0.6 else 0.45
+            self.output.STREAM_CUSHION_SECONDS = (
+                0.1 if speed.rhythm < 0.3 else 0.15 if speed.rhythm < 0.4 else 0.3 if speed.rhythm < 0.6 else 0.45
+            )
         if self.simultaneous and not speed.partials_fit:
             self._vad.split_while_speaking = False
             self.translate_while_speaking = False
@@ -264,14 +283,16 @@ class LiveVoicePipeline:
             return None
         return fast
 
-    def _use_whisper(self) -> None:
-        """Whisper en vez de Parakeet (sin traducir mientras hablás: Whisper no da
-        el tiempo de cada palabra), liberando la memoria de Parakeet."""
-        # "tiny": el más rápido (y el que siempre se descarga).
-        self._asr = SpeechRecognizer(dataclasses.replace(self.profile, whisper_model="tiny"))
+    def _use_fast_asr(self) -> None:
+        """Vosk (o si no está, Whisper) en vez de Parakeet, liberando su memoria.
+        Sin traducir mientras hablás: ninguno da el tiempo de cada palabra."""
+        # Whisper "tiny": el más rápido (y el que siempre se descarga).
+        self._asr = SpeechRecognizer(
+            dataclasses.replace(self.profile, whisper_model="tiny"), self.source_language.code, parakeet=False
+        )
         self.asr_name = self._asr.name
         self.simultaneous = self.translate_while_speaking = False
-        self._vad = StreamingVAD(max_utterance_seconds=self.profile.max_utterance_seconds)
+        self._vad = self._make_vad()
         gc.collect()
         self._asr.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), self.source_language.whisper_code)
 
@@ -374,6 +395,8 @@ class LiveVoicePipeline:
                     text_src = self._asr.transcribe(utterance.audio, self.source_language.whisper_code)
                 if not text_src:
                     continue
+                if self._asr.streaming:  # Vosk no pone puntos ni signos de pregunta
+                    text_src = restore_punctuation(text_src, self.source_language.code)
                 text_tgt = self._translator.translate(text_src)
                 if self.on_transcript:
                     self.on_transcript(text_src, text_tgt)
@@ -398,8 +421,11 @@ class LiveVoicePipeline:
         huecos; con la voz natural, de a pedacitos, que empiezan a sonar apenas
         se generan si no hay nada sonando."""
         if not self.stream_playback:
-            audio, rate = self._synth.synthesize(text, self.target_language)
-            self._queue_audio(("audio", audio, rate), len(audio) / rate)
+            # De a partes (cortadas en las comas): la primera empieza a sonar
+            # mientras se generan las demás.
+            for part in clauses(text):
+                audio, rate = self._synth.synthesize(part, self.target_language)
+                self._queue_audio(("audio", audio, rate), len(audio) / rate)
             return
         chunks, rate = self._synth.stream(text, self.target_language)
         self._audio_out_queue.put(("stream_start", rate))

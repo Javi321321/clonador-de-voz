@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from clonavoz.simultaneous import ClauseSplitter  # noqa: E402
+from clonavoz.simultaneous import ClauseSplitter, clauses  # noqa: E402
 
 # Como devuelve Parakeet: pedazos de texto y en qué segundo empieza cada uno.
 TOKENS = [" Yo", " así", " lo", " cre", "o", ",", " respond", "ió", " San", "cho", ",", " y", " quer", "ría"]
@@ -57,3 +57,13 @@ def test_a_recognition_error_just_means_no_cut():
         raise RuntimeError("falló")
 
     assert ClauseSplitter(broken)(np.zeros(16000 * 5, dtype=np.float32), False) is None
+
+
+def test_the_translation_is_said_in_parts_cut_at_commas():
+    assert clauses("Tomorrow I won't be able to go to the meeting, because I have to take my son to the doctor.") == [
+        "Tomorrow I won't be able to go to the meeting,",
+        "because I have to take my son to the doctor.",
+    ]
+    assert clauses("Hey, how are you?") == ["Hey, how are you?"]  # no parte pedacitos
+    assert clauses("I will check it in time, OK?") == ["I will check it in time, OK?"]
+    assert clauses("") == []

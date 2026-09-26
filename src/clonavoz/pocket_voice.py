@@ -61,6 +61,18 @@ def supports(language_code: str) -> bool:
     return language_code in LANGUAGES
 
 
+def load_model(int8: bool, **kwargs):
+    """El modelo de Pocket TTS (`kwargs` como `TTSModel.load_model`), normal o int8."""
+    TTSModel, _ = _import_pocket()
+    if not int8:
+        return TTSModel.load_model(**kwargs)
+    with warnings.catch_warnings():
+        # PyTorch avisa que su cuantización int8 va a cambiar de lugar (según la
+        # versión, como DeprecationWarning o UserWarning): no afecta en nada.
+        warnings.simplefilter("ignore")
+        return TTSModel.load_model(quantize=True, **kwargs)
+
+
 def int8_supported() -> bool:
     """Si este procesador puede usar la versión int8 (la de PyTorch necesita AVX2)."""
     if platform.machine().lower() not in ("amd64", "x86_64"):
@@ -159,17 +171,13 @@ class PocketVoice:
         self.sample_rate = 24000
 
     def _load(self, language_code: str):
-        TTSModel, _ = _import_pocket()
         config = str(_config_path(language_code))
         if self.int8:
             try:
-                with warnings.catch_warnings():
-                    # PyTorch avisa que su cuantización int8 va a cambiar de lugar.
-                    warnings.simplefilter("ignore", DeprecationWarning)
-                    return TTSModel.load_model(config=config, quantize=True)
+                return load_model(True, config=config)
             except Exception:  # noqa: BLE001 - sin int8 (ej. otra versión de PyTorch): la normal
                 self.int8 = False
-        return TTSModel.load_model(config=config)
+        return load_model(False, config=config)
 
     def _model(self, language_code: str):
         if language_code not in self._models:

@@ -8,7 +8,7 @@ Cómo usarlo
 -----------
 1. Doble clic en "Iniciar.bat".
 2. La primera vez:
-   - Opción 6: descarga los modelos (~2.4 GB, necesita internet una sola vez;
+   - Opción 6: descarga los modelos (~2.5 GB, necesita internet una sola vez;
      quedan guardados en esta carpeta). Te pide un token para la "voz natural"
      (ver abajo); con Enter la salteás y se usa la voz liviana.
    - Opción 2: graba 15 segundos de tu voz.
@@ -19,7 +19,8 @@ La traducción sale como la de un intérprete: no espera a que termines de
 hablar, sino que dice cada idea (hasta una coma o un punto) alrededor de un
 segundo después de que la terminás de decir, mientras seguís hablando.
 Si descargaste los modelos con una versión anterior, volvé a usar la opción 6
-una vez: baja el traductor rápido (~160 MB) y la traducción sale antes.
+una vez: baja el traductor y el reconocimiento rápidos (~240 MB) y la
+traducción sale antes.
 
 Notebooks lentas
 ----------------

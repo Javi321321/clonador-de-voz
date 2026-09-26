@@ -86,7 +86,7 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
             print(exc, file=sys.stderr)
             sys.exit(1)
 
-    from . import openvoice, parakeet_asr, piper_tts, translate  # translate carga torch antes que ctranslate2
+    from . import openvoice, parakeet_asr, piper_tts, translate, vosk_asr  # translate carga torch antes que ctranslate2
 
     from faster_whisper.utils import download_model
 
@@ -102,6 +102,13 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
     for size in whisper_sizes:
         print(f"Reconocimiento de voz (Whisper '{size}')...")
         download_model(size)
+    for lang in languages:
+        if vosk_asr.supports(lang.code):
+            print(f"Reconocimiento rápido para PCs lentas (Vosk, {lang.name}, ~40 MB)...")
+            try:
+                vosk_asr.download(lang.code)
+            except Exception as exc:  # noqa: BLE001 - es opcional: sin él se usa Whisper
+                print(f"  (no se pudo: {exc}. En PCs lentas se usa Whisper)")
     print("Traductor (NLLB-200)...")
     translate.download()
     for source in languages:

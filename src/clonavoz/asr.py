@@ -1,7 +1,8 @@
 """Reconocimiento de voz (ASR). Con Parakeet (ver `parakeet_asr.py`) si está
 descargado, entiende tu idioma y la PC tiene memoria suficiente: se equivoca
-bastante menos. Si no, faster-whisper (Whisper optimizado con CTranslate2),
-que corre bien en CPU y entiende unos 99 idiomas.
+bastante menos. Si no, Vosk (ver `vosk_asr.py`), que va entendiendo mientras
+hablás, si está descargado para tu idioma. Si no, faster-whisper (Whisper
+optimizado con CTranslate2), que corre bien en CPU y entiende unos 99 idiomas.
 """
 from __future__ import annotations
 
@@ -17,15 +18,17 @@ import torch  # noqa: F401  (ver arriba: tiene que importarse antes que ctransla
 from faster_whisper import WhisperModel
 from faster_whisper.tokenizer import Tokenizer
 
-from . import parakeet_asr
+from . import parakeet_asr, vosk_asr
 from .config import PerformanceProfile
 
 # Whisper mira siempre una ventana de 30 s de audio (3000 cuadros de 10 ms; lo
 # que falta lo rellena con silencio), y eso es lo que más tarda. Para frases de
-# hasta 7 s alcanza con una de 10 s: el mismo texto hasta 3 veces más rápido,
-# lo que en una PC lenta es la diferencia entre llegar o no a tiempo.
-_SHORT_WINDOW_FRAMES = 1000
-_SHORT_MAX_FRAMES = 700
+# hasta 7 s alcanza con una de 10 s: el mismo texto hasta 4 veces más rápido,
+# lo que en una PC lenta es la diferencia entre llegar o no a tiempo. (Con una
+# de 5 s se equivocaba bastante más: 42% de palabras distintas contra 28%.)
+# (cuadros de la frase como máximo, cuadros de la ventana): si una da un
+# resultado dudoso, se prueba con la siguiente y, si no, la de 30 s.
+_SHORT_WINDOWS = ((700, 1000),)
 
 
 def _compression_ratio(text: str) -> float:
@@ -36,15 +39,21 @@ def _compression_ratio(text: str) -> float:
 
 class SpeechRecognizer:
     """`language_code`: el idioma en el que vas a hablar (código de clonavoz),
-    para saber si Parakeet lo entiende. Sin él se usa Whisper."""
+    para saber si Parakeet o Vosk lo entienden. Sin él se usa Whisper.
+    `parakeet=False`: sin Parakeet (en una PC donde tarda demasiado)."""
 
-    def __init__(self, profile: PerformanceProfile, language_code: str | None = None) -> None:
+    def __init__(self, profile: PerformanceProfile, language_code: str | None = None, parakeet: bool = True) -> None:
         self._parakeet = None
+        self._vosk = None
         self._model = None
-        if language_code is not None and parakeet_asr.usable(language_code):
+        if language_code is not None and parakeet and parakeet_asr.usable(language_code):
             cores = psutil.cpu_count(logical=False) or 2
             self._parakeet = parakeet_asr.ParakeetRecognizer(threads=max(1, min(4, cores)))
             self.name = "Parakeet"
+            return
+        if language_code is not None and vosk_asr.ready(language_code):
+            self._vosk = vosk_asr.VoskModel(language_code)
+            self.name = "Vosk"
             return
         device = profile.device if profile.device in ("cuda", "cpu") else "cpu"
         self._model = WhisperModel(
@@ -59,19 +68,35 @@ class SpeechRecognizer:
         """Si da el tiempo de cada palabra (para la traducción simultánea)."""
         return self._parakeet is not None
 
+    @property
+    def streaming(self) -> bool:
+        """Si entiende mientras hablás (Vosk): el texto está listo al terminar la
+        frase. Sin puntuación: ver punctuation.py."""
+        return self._vosk is not None
+
+    def stream(self) -> vosk_asr.VoskStream:
+        return self._vosk.stream()
+
     def transcribe_timed(self, audio: np.ndarray) -> tuple[list[str], list[float]]:
         return self._parakeet.transcribe_timed(audio)
 
     def _transcribe_short(self, audio: np.ndarray, whisper_language: str) -> str | None:
-        """Una frase corta, con la ventana de 10 s y una sola pasada. None si la
-        frase es larga o el resultado no es confiable (se repite o Whisper duda):
-        ahí se usa el camino normal, con la ventana de 30 s y sus reintentos."""
+        """Una frase corta, con una ventana chica y una sola pasada por ventana.
+        None si la frase es larga o ninguna ventana dio un resultado confiable
+        (se repite o Whisper duda): ahí se usa el camino normal, con la ventana
+        de 30 s y sus reintentos."""
+        features = self._model.feature_extractor(np.asarray(audio, dtype=np.float32))
+        for max_frames, window_frames in _SHORT_WINDOWS:
+            if features.shape[-1] <= max_frames:
+                text = self._transcribe_window(features, window_frames, whisper_language)
+                if text is not None:
+                    return text
+        return None
+
+    def _transcribe_window(self, features: np.ndarray, window_frames: int, whisper_language: str) -> str | None:
         model = self._model
-        features = model.feature_extractor(np.asarray(audio, dtype=np.float32))
         frames = features.shape[-1]
-        if frames > _SHORT_MAX_FRAMES:
-            return None
-        window = np.zeros((features.shape[0], _SHORT_WINDOW_FRAMES), dtype=features.dtype)
+        window = np.zeros((features.shape[0], window_frames), dtype=features.dtype)
         window[:, :frames] = features  # el resto, como el relleno que usa faster-whisper
         tokenizer = Tokenizer(model.hf_tokenizer, model.model.is_multilingual, task="transcribe", language=whisper_language)
         prompt = model.get_prompt(tokenizer, [], without_timestamps=False)
@@ -95,6 +120,8 @@ class SpeechRecognizer:
     def transcribe(self, audio: np.ndarray, whisper_language: str) -> str:
         if self._parakeet is not None:
             return self._parakeet.transcribe(audio)
+        if self._vosk is not None:
+            return self._vosk.transcribe(audio)
         try:
             text = self._transcribe_short(audio, whisper_language)
         except Exception:  # noqa: BLE001 - ante cualquier problema, la ventana de siempre

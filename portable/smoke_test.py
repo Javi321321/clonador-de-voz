@@ -74,6 +74,22 @@ def main() -> None:
     _step(f"reconocimiento rápido ({whisper.name}, ventana de 10 s): {short!r}", t)
     del whisper
 
+    # Vosk: el que va entendiendo mientras hablás (el de las PCs lentas).
+    from clonavoz import vosk_asr
+    from clonavoz.punctuation import restore
+
+    assert vosk_asr.ready("es"), "falta el reconocimiento en streaming (Vosk): la descarga falló"
+    t = time.perf_counter()
+    vosk = SpeechRecognizer(get_profile("low"), "es", parakeet=False)
+    assert vosk.name == "Vosk" and vosk.streaming, vosk.name
+    stream = vosk.stream()
+    for start in range(0, len(audio16), 512):
+        stream.accept(audio16[start : start + 512])
+    heard = stream.text()
+    assert len(set(heard.split()) & {"hola", "esta", "es", "mi", "voz", "estoy", "probando", "traductor"}) >= 4, heard
+    _step(f"reconocimiento en streaming (Vosk): {restore(heard, 'es')!r}", t)
+    del vosk
+
     t = time.perf_counter()
     translator = Translator("spa_Latn", "eng_Latn", pair=("es", "en"))
     english = translator.translate(text)
@@ -145,10 +161,10 @@ def _natural_voice_int8(english: str) -> None:
         print("  --  voz natural int8: este procesador no tiene AVX2 (se usa la normal)", flush=True)
         return
     t = time.perf_counter()
-    tts_model, _ = pocket_voice._import_pocket()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        model = tts_model.load_model(language="english", quantize=True)
+    with warnings.catch_warnings(record=True) as shown:
+        warnings.simplefilter("always")
+        model = pocket_voice.load_model(True, language="english")
+    assert not shown, f"la voz int8 muestra avisos técnicos: {[str(w.message)[:80] for w in shown]}"
     state = model.get_state_for_audio_prompt("alba")
     model.generate_audio(state, "Hi.")
     t = time.perf_counter()
