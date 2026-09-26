@@ -95,9 +95,10 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
     if parakeet:
         print("Reconocimiento de voz preciso (Parakeet, ~640 MB)...")
         parakeet_asr.download()
-    # Whisper "tiny" siempre (para PCs con poca memoria); "small" solo si hay un
-    # idioma que Parakeet no entiende (para PCs potentes).
-    whisper_sizes = args.whisper or ["tiny"] + (
+    # Whisper "tiny" siempre (para PCs con poca memoria), "base" para entender
+    # lo que te dicen en cualquier idioma, y "small" solo si hay un idioma que
+    # Parakeet no entiende (para PCs potentes).
+    whisper_sizes = args.whisper or ["tiny", "base"] + (
         [] if all(parakeet_asr.supports(lang.code) for lang in languages) else ["small"]
     )
     for size in whisper_sizes:
@@ -771,7 +772,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_download.add_argument(
         "--whisper", nargs="+", default=None,
-        help="Modelos de Whisper a descargar (por defecto: tiny, y small si algún idioma no lo entiende "
+        help="Modelos de Whisper a descargar (por defecto: tiny y base, y small si algún idioma no lo entiende "
         "Parakeet, el reconocimiento más preciso que se baja para español, inglés y otros 23 idiomas)",
     )
     p_download.set_defaults(func=_cmd_download_models)

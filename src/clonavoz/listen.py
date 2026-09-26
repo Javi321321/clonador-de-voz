@@ -50,20 +50,37 @@ CONSENT_NOTICE = (
 )
 
 
+def _whisper_ready(size: str) -> bool:
+    """Si ese Whisper ya está descargado (sin usar internet)."""
+    try:
+        from faster_whisper.utils import download_model
+
+        download_model(size, local_files_only=True)
+    except Exception:  # noqa: BLE001 - no está (o no se puede saber): no se usa
+        return False
+    return True
+
+
 class CallRecognizer:
-    """Entiende lo que te dicen, en el idioma que sea: Whisper "tiny" reconoce
-    el idioma por el sonido, y el texto sale de Parakeet (si la PC lo tiene y
+    """Entiende lo que te dicen, en el idioma que sea: Whisper reconoce el
+    idioma por el sonido, y el texto sale de Parakeet (si la PC lo tiene y
     entiende ese idioma: se equivoca bastante menos) o de Whisper, aprovechando
-    lo que ya calculó para el idioma."""
+    lo que ya calculó para el idioma.
+
+    Whisper "base" si está descargado: en nuestras pruebas se equivocó mucho
+    menos que "tiny" (inglés: ~11% de palabras contra ~28%; portugués: ~39%
+    contra ~52%) y en una notebook lenta tarda lo mismo o menos (~1.4 s por
+    frase), porque "tiny" duda con el portugués y lo vuelve a intentar."""
 
     def __init__(self, profile: PerformanceProfile, priority: tuple[str, ...], parakeet: bool = True) -> None:
-        self._whisper = SpeechRecognizer(dataclasses.replace(profile, whisper_model="tiny"))
+        size = "base" if _whisper_ready("base") else "tiny"
+        self._whisper = SpeechRecognizer(dataclasses.replace(profile, whisper_model=size))
         self._parakeet = None
         if parakeet and parakeet_asr.enough_memory() and parakeet_asr.ready():
             cores = psutil.cpu_count(logical=False) or 2
             self._parakeet = parakeet_asr.shared(threads=max(1, min(4, cores)))
         self.tracker = LanguageTracker(priority=priority)
-        self.name = "Parakeet (y Whisper tiny para el idioma)" if self._parakeet else "Whisper tiny"
+        self.name = f"Parakeet (y Whisper {size} para el idioma)" if self._parakeet else f"Whisper {size}"
 
     def warm_up(self) -> None:
         silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
