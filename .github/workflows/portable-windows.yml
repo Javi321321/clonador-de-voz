@@ -200,7 +200,8 @@ jobs:
           }
 
       - name: "La ventana: si Windows no deja usar el micrófono, lo avisa y no arranca"
-        shell: powershell
+        # pwsh (PowerShell 7) lee bien las tildes del script; Windows PowerShell 5.1 no.
+        shell: pwsh
         timeout-minutes: 5
         run: |
           $key = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged"
