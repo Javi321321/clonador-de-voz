@@ -70,6 +70,15 @@ def test_without_parakeet_a_possible_switch_is_confirmed_by_the_words():
     assert rec._whisper.transcribed[-1] == "pt"
 
 
+def test_without_parakeet_other_languages_need_more_than_one_phrase():
+    rec = recognizer({"en": 0.9, "pt": 0.05})
+    for _ in range(3):
+        rec.recognize(SECOND)
+    rec._whisper.probabilities = {"fr": 0.95, "en": 0.01, "pt": 0.02}
+    assert rec.recognize(SECOND)[0] == "en"  # un "Oi" cortito que sonó a francés
+    assert "fr" not in rec._whisper.transcribed
+
+
 def test_noise_does_not_count_for_the_language():
     rec = recognizer({"en": 0.9}, parakeet_text="Hi there.")
     rec.recognize(SECOND)

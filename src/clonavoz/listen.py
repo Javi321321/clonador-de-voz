@@ -99,11 +99,14 @@ class CallRecognizer:
                 return self._finish(code, text)
         else:
             # Sin Parakeet, el texto depende del idioma que se elija. Si por el
-            # sonido parece que cambió de idioma, se transcribe en ese y las
-            # palabras lo confirman (o no) antes de decidir.
+            # sonido parece que cambió a otro de los idiomas más probables, se
+            # transcribe en ese y las palabras lo confirman (o no) antes de
+            # decidir. (Con otros idiomas no: Whisper, forzado a un idioma,
+            # escribe palabras de ese idioma aunque no sea el que se habló.)
             heard = self.tracker.heard(probabilities)
             hint = None
-            if self.tracker.current is not None and heard != self.tracker.current:
+            current = self.tracker.current
+            if current is not None and heard != current and heard in self.tracker.priority:
                 hint = self._whisper.transcribe_encoded(audio, get_language(heard).whisper_code, encoded)
             code = self.tracker.update(probabilities, seconds, hint)
             if hint is not None and code == heard:
