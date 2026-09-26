@@ -228,9 +228,12 @@ class _CompletionHandler:
 class _WasapiLoopback:
     """La grabación de WASAPI en sí; todo en el hilo que la usa (COM MTA)."""
 
-    def __init__(self, exclude_own_process: bool) -> None:
+    def __init__(self, exclude_own_process: bool, capture_endpoint: bool = False) -> None:
+        """`capture_endpoint`: en vez de lo que suena, el micrófono predeterminado
+        (solo para las pruebas: es el mismo camino de lectura)."""
         self.com = _Com()
         self.exclude_own_process = exclude_own_process
+        self._capture_endpoint = capture_endpoint
         self._client = c_void_p()
         self._capture = c_void_p()
         self._event = None
@@ -310,7 +313,8 @@ class _WasapiLoopback:
         )
         try:
             # GetDefaultAudioEndpoint(eRender, eConsole): la salida predeterminada.
-            _Com.method(enumerator, 4, c_int, c_int, POINTER(c_void_p))(0, 0, byref(device))
+            flow = 1 if self._capture_endpoint else 0  # eCapture / eRender
+            _Com.method(enumerator, 4, c_int, c_int, POINTER(c_void_p))(flow, 0, byref(device))
             try:
                 _Com.method(device, 3, POINTER(_Guid), c_uint32, c_void_p, POINTER(c_void_p))(
                     byref(_guid(_IID_AUDIO_CLIENT)), _CLSCTX_ALL, None, byref(self._client)
@@ -326,7 +330,7 @@ class _WasapiLoopback:
             self.rate, self.channels, self.block_align = fmt.nSamplesPerSec, fmt.nChannels, fmt.nBlockAlign
             self.dtype = _sample_type(fmt, mix.value)
             initialize = _Com.method(self._client, 3, c_int, c_uint32, c_int64, c_int64, c_void_p, c_void_p)
-            initialize(0, _LOOPBACK, 1_000_000, 0, mix, None)
+            initialize(0, 0 if self._capture_endpoint else _LOOPBACK, 1_000_000, 0, mix, None)
         finally:
             self.com.ole32.CoTaskMemFree(mix)
 

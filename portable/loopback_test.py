@@ -43,12 +43,52 @@ def tone(freq: float, seconds: float, rate: int = 48000) -> np.ndarray:
     return (0.3 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 
 
-def play_from_other_app(freq: float, seconds: float) -> None:
-    code = (
+def other_app_code(freq: float, seconds: float) -> str:
+    return (
         f"import numpy as np, sounddevice as sd; r = 48000; t = np.arange(int({seconds} * r)) / r; "
         f"sd.play((0.3 * np.sin(2 * np.pi * {freq} * t)).astype('float32'), r); sd.wait()"
     )
-    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def play_from_other_app(freq: float, seconds: float) -> None:
+    subprocess.run([sys.executable, "-c", other_app_code(freq, seconds)], check=True)
+
+
+def read_path_with_microphone() -> bool:
+    """El mismo camino de lectura de call_audio, pero del micrófono predeterminado
+    (en estas máquinas, CABLE Output: por donde sale lo que suena)."""
+    print("\n== Misma lectura, desde el micrófono predeterminado (sin loopback) ==", flush=True)
+    import threading
+
+    from clonavoz.audio_io import MicStats
+    from clonavoz.call_audio import FrameAssembler, _WasapiLoopback
+
+    frames: list[np.ndarray] = []
+    stop = threading.Event()
+    info = {}
+
+    def run() -> None:
+        wasapi = _WasapiLoopback(False, capture_endpoint=True)
+        try:
+            wasapi.open()
+            info["format"] = f"{wasapi.rate} Hz, {wasapi.channels} canal(es), {wasapi.dtype.name}"
+            wasapi.read(FrameAssembler(wasapi.rate, wasapi.channels, wasapi.dtype, 512, frames.append, MicStats()), stop)
+        except Exception as exc:  # noqa: BLE001
+            info["error"] = exc
+        finally:
+            wasapi.close()
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    time.sleep(0.5)
+    play_from_other_app(OTHER_APP, 1.5)
+    stop.set()
+    thread.join()
+    audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.float32)
+    level = tone_db(audio, OTHER_APP)
+    print(f"  {info.get('format')} {info.get('error', '')}| tono {level:.0f} dB")
+    check(level > -40, "la lectura de paquetes de WASAPI funciona (llega el tono por el micrófono)")
+    return level > -40
 
 
 def run(exclude: bool) -> None:
@@ -103,23 +143,13 @@ def reference_libraries() -> None:
     el problema es de la máquina y no de call_audio)."""
     print("\n== Referencia: soundcard (loopback de la salida predeterminada) ==", flush=True)
     try:
-        import threading
-
         import soundcard as sc
 
         speaker = sc.default_speaker()
         mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
-        result = {}
-
-        def record() -> None:
-            result["audio"] = mic.record(samplerate=RATE, numframes=int(3.5 * RATE)).mean(axis=1)
-
-        thread = threading.Thread(target=record)
-        thread.start()
-        time.sleep(0.3)
-        play_from_other_app(OTHER_APP, 1.5)
-        thread.join()
-        audio = result["audio"]
+        child = subprocess.Popen([sys.executable, "-c", other_app_code(OTHER_APP, 2.5)])
+        audio = mic.record(samplerate=RATE, numframes=int(4.0 * RATE)).mean(axis=1)
+        child.wait()
         print(f"  {speaker.name}: pico {20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9)):.0f} dB, "
               f"tono {tone_db(audio, OTHER_APP):.0f} dB")
     except Exception as exc:  # noqa: BLE001 - es solo una referencia
@@ -162,6 +192,7 @@ def reference_libraries() -> None:
 
 def main() -> None:
     print(f"Windows {sys.getwindowsversion().build} | salida predeterminada: {sd.query_devices(kind='output')['name']}")
+    read_path_with_microphone()
     reference_libraries()
     supported = process_loopback_supported()
     print(f"Grabar todo menos clonavoz: {'se puede' if supported else 'no (Windows viejo)'}")
