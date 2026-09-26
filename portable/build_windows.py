@@ -60,14 +60,20 @@ def _install_python(python_dir: Path) -> None:
     pth.write_text(f"{stdlib_zip}\n.\nLib\\site-packages\nimport site\n", encoding="ascii")
 
 
+# Dependencias en Python puro que en PyPI solo están como código fuente (sin
+# "wheel"): se arman acá, porque para otra plataforma pip solo instala wheels.
+# (srt lo importa Vosk al cargarse.)
+SOURCE_ONLY = ["srt"]
+
+
 def _install_packages(site_packages: Path) -> None:
     with tempfile.TemporaryDirectory() as wheel_dir:
-        _run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", wheel_dir, str(ROOT)])
+        _run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", wheel_dir, str(ROOT), *SOURCE_ONLY])
         clonavoz_wheel = next(Path(wheel_dir).glob("clonavoz-*.whl"))
         cmd = [
             sys.executable, "-m", "pip", "install", "--target", str(site_packages),
             "--platform", "win_amd64", "--python-version", PYTHON_VERSION.rsplit(".", 1)[0],
-            "--implementation", "cp", "--only-binary=:all:",
+            "--implementation", "cp", "--only-binary=:all:", "--find-links", wheel_dir,
             "--index-url", TORCH_CPU_INDEX, "--extra-index-url", "https://pypi.org/simple",
             "torch", str(clonavoz_wheel),
         ]
