@@ -87,6 +87,13 @@ static class Launcher
         };
         try
         {
+            if (test == null && Installer.NeedsInstall(exe, app) && InsideTemporaryFolder(here))
+            {
+                Show("Estás abriendo clonavoz.exe desde adentro del .zip descargado (o desde una carpeta temporal): " +
+                     "Windows lo borraría después.\n\nPrimero copiá clonavoz.exe al pendrive (o a una carpeta de tu PC) y " +
+                     "abrilo desde ahí.");
+                return 1;
+            }
             if (Installer.NeedsInstall(exe, app) && !InstallForm.Install(exe, app)) return 1;
             if (!Installer.IsInstalled(app))
             {
@@ -133,6 +140,20 @@ static class Launcher
         MessageBox.Show("Algo falló en la ventana de clonavoz:\n\n" + (exc != null ? exc.Message : "?") +
                         "\n\nSi vuelve a pasar, usá \"Más opciones (menú)\".", "clonavoz",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    // Al abrir un .exe desde adentro de un .zip, Windows lo copia a la carpeta temporal.
+    static bool InsideTemporaryFolder(string folder)
+    {
+        try
+        {
+            string temp = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return (Path.GetFullPath(folder) + Path.DirectorySeparatorChar).StartsWith(temp, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     static bool AlreadyOpen()
@@ -261,7 +282,7 @@ static class Installer
     {
         try
         {
-            long needed = 3L * 1024 * 1024 * 1024;  // los modelos que se bajan después (~2.5 GB)
+            long needed = 3L * 1024 * 1024 * 1024;  // los modelos que se bajan después (~2.7 GB)
             using (ZipArchive zip = ZipFile.OpenRead(exe))
             {
                 foreach (ZipArchiveEntry entry in zip.Entries) needed += entry.Length;
@@ -1052,7 +1073,7 @@ sealed class MainForm : Form
     string IdleText()
     {
         string text = "Tocá ACTIVAR y clonavoz prepara todo solo (te avisa si necesita algo). ";
-        if (!File.Exists(ReadyFile)) text += "La primera vez baja los modelos (unos 2.5 GB, con internet) y graba tu voz (15 segundos).";
+        if (!File.Exists(ReadyFile)) text += "La primera vez baja los modelos (unos 2.7 GB, con internet) y graba tu voz (15 segundos).";
         else if (!File.Exists(VoiceFile)) text += "Primero va a grabar tu voz: 15 segundos.";
         else text += "Hablás en " + LanguageName(settings.Speak) + " y te escuchan en " + HeardText() + ".";
         return text;
@@ -1258,9 +1279,10 @@ sealed class MainForm : Form
         }
         else
         {
+            string space = FreeSpaceWarning();
             accepted = (bool)Invoke((Func<bool>)delegate
             {
-                return DownloadDialog.Ask(this, have == null, missing, out token);
+                return DownloadDialog.Ask(this, have == null, missing, space, out token);
             });
         }
         if (!accepted)
@@ -1279,6 +1301,22 @@ sealed class MainForm : Form
         }
         Info("Listo: modelos descargados. Desde ahora funciona sin internet.");
         return true;
+    }
+
+    // Si en el pendrive (o disco) no entran los modelos.
+    string FreeSpaceWarning()
+    {
+        try
+        {
+            var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(app)));
+            double free = drive.AvailableFreeSpace / 1073741824.0;
+            if (free >= 3.0) return null;
+            return string.Format("Ojo: quedan {0:0.0} GB libres y hacen falta unos 2.7 GB. Liberá lugar antes de seguir.", free);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     List<string> DownloadedLanguages()
@@ -1916,9 +1954,9 @@ sealed class DownloadDialog : Form
 {
     readonly TextBox token = new TextBox();
 
-    public static bool Ask(IWin32Window owner, bool first, List<string> missing, out string hfToken)
+    public static bool Ask(IWin32Window owner, bool first, List<string> missing, string spaceWarning, out string hfToken)
     {
-        using (var dialog = new DownloadDialog(first, missing))
+        using (var dialog = new DownloadDialog(first, missing, spaceWarning))
         {
             bool accepted = dialog.ShowDialog(owner) == DialogResult.OK;
             string value = dialog.token.Text.Trim();
@@ -1927,7 +1965,7 @@ sealed class DownloadDialog : Form
         }
     }
 
-    DownloadDialog(bool first, List<string> missing)
+    DownloadDialog(bool first, List<string> missing, string spaceWarning)
     {
         float scale = MainForm.DpiScale(this);
         Text = "clonavoz: descargar los modelos";
@@ -1946,12 +1984,18 @@ sealed class DownloadDialog : Form
         int width = (int)(565 * scale);
 
         var intro = Wrapped(first
-            ? "Primera vez: hay que descargar los modelos de reconocimiento, traducción y voz (unos 2.5 GB, con " +
+            ? "Primera vez: hay que descargar los modelos de reconocimiento, traducción y voz (unos 2.7 GB, con " +
               "internet, una sola vez). Quedan en el pendrive: después funciona sin internet en cualquier PC."
             : "Para los idiomas que elegiste hay que descargar lo que falta (" + string.Join(", ", missing.ToArray()) +
               "), con internet.", width);
         intro.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
         layout.Controls.Add(intro);
+        if (spaceWarning != null)
+        {
+            var space = Wrapped(spaceWarning, width);
+            space.ForeColor = Color.FromArgb(185, 28, 28);
+            layout.Controls.Add(space);
+        }
 
         layout.Controls.Add(Wrapped(
             "Voz natural (opcional, la más parecida a vos): sus creadores (Kyutai) piden aceptar una condición, " +

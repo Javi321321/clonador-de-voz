@@ -184,7 +184,7 @@ cls
 echo ==============================================================
 echo    Bienvenido a clonavoz: primera vez en este pendrive
 echo ==============================================================
-echo  1. Se descargan los modelos: unos 2.5 GB, con internet, una sola vez.
+echo  1. Se descargan los modelos: unos 2.7 GB, con internet, una sola vez.
 echo  2. Grabas tu voz: 15 segundos.
 echo Despues funciona sin internet en cualquier PC con Windows 10 u 11.
 echo (Para cancelar, cerra esta ventana.)

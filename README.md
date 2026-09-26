@@ -656,9 +656,11 @@ mencionadas); con XTTS-v2, también ese modelo.
 
 ## Solución de problemas
 
-**Hablo y el micrófono no se mueve.** Primero corré `clonavoz test-audio`: te dice si el
-problema está en tu micrófono o en el micrófono virtual, y la causa probable. Las más
-comunes:
+**Hablo y el micrófono no se mueve.** En la versión portable, **ACTIVAR** ya arregla solo
+lo más común (micrófono o cable silenciados en Windows, el cable como parlante
+predeterminado, el permiso de Windows para usar el micrófono), y el botón **Probar
+micrófono** de la ventana hace lo mismo que `clonavoz test-audio`: te dice si el problema
+está en tu micrófono o en el micrófono virtual, y la causa probable. Las más comunes:
 
 - **Estás mirando el micrófono virtual mientras hablás.** "CABLE Output" (o "BlackHole
   2ch" / "Monitor of ClonaVoz_Mic") recién se mueve cuando la frase traducida está lista,
@@ -678,6 +680,12 @@ comunes:
 - **Aparece `Error procesando una frase`:** la frase se escuchó pero no se pudo generar el
   audio, así que no sale nada. Mirá los errores de abajo (FFmpeg, `transformers`). Si
   usás XTTS-v2 sin GPU, probá el motor liviano: `--voice-engine openvoice`.
+
+**La ventana no abre, o el antivirus se queja de `clonavoz.exe`.** Es un programa sin
+firma digital (firmarlo cuesta dinero): Windows avisa "Windows protegió su PC" → "Más
+información" → "Ejecutar de todas formas". Si el antivirus lo pone en cuarentena, restauralo
+o usá la versión .zip (`Abrir clonavoz.exe` o `Iniciar.bat`, adentro de la carpeta). Si lo
+abriste desde adentro del .zip descargado, la ventana te pide copiarlo primero al pendrive.
 
 **Error `cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils'`**
 al sintetizar voz: significa que se instaló una versión de `transformers` demasiado
