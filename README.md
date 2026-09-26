@@ -123,7 +123,7 @@ lo que suena en la PC (la llamada) → VAD → en qué idioma te hablan (Whisper
 Demora medida desde que la otra persona termina de hablar hasta que empieza a sonar la
 traducción: **1.3 y 1.5 s** en Windows real (una frase en inglés y otra en portugués, por
 el cable virtual; ver [Versión portable](#versión-portable-windows-un-solo-exe-para-el-pendrive)),
-0.6-1.4 s en una PC de 4 núcleos, y ~2-3 s en una notebook débil simulada (con Whisper
+0.6-1.4 s en una PC de 4 núcleos, y ~3 s (2.6 a 3.6 s) en una notebook débil simulada (con Whisper
 `base`: entiende el inglés y el portugués mucho mejor que `tiny` —~11% de palabras mal
 contra ~28% en inglés, ~39% contra ~52% en portugués— y en esa notebook tarda lo mismo o
 menos, ~1.4 s por frase). La conversación completa (las dos direcciones) usa ~1.6 GB de
@@ -593,7 +593,8 @@ mencionadas); con XTTS-v2, también ese modelo.
 - Lo que te dicen se toma de todo lo que suena en la PC: si suena otra cosa (un video,
   notificaciones), también se traduce. Cerrá lo que no uses durante la llamada.
 - La primera frase corta después de que la otra persona cambia de idioma a veces se
-  traduce como si siguiera en el anterior; desde la siguiente, bien.
+  traduce como si siguiera en el anterior (sobre todo en PCs sin Parakeet, con menos de
+  6 GB de RAM); desde la siguiente, bien.
 - Con `--their-voice clonada` en una llamada de varias personas, la voz clonada mezcla
   las de todos: sirve mejor con una sola persona.
 - Parakeet detecta por su cuenta en qué idioma hablás (no se le puede indicar): en
