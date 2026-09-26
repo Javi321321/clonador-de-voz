@@ -98,8 +98,71 @@ def run(exclude: bool) -> None:
     check(stream.error is None, f"sin errores al grabar ({stream.error})")
 
 
+def reference_libraries() -> None:
+    """Lo mismo con librerías conocidas, para comparar (si también graban ceros,
+    el problema es de la máquina y no de call_audio)."""
+    print("\n== Referencia: soundcard (loopback de la salida predeterminada) ==", flush=True)
+    try:
+        import threading
+
+        import soundcard as sc
+
+        speaker = sc.default_speaker()
+        mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+        result = {}
+
+        def record() -> None:
+            result["audio"] = mic.record(samplerate=RATE, numframes=int(3.5 * RATE)).mean(axis=1)
+
+        thread = threading.Thread(target=record)
+        thread.start()
+        time.sleep(0.3)
+        play_from_other_app(OTHER_APP, 1.5)
+        thread.join()
+        audio = result["audio"]
+        print(f"  {speaker.name}: pico {20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9)):.0f} dB, "
+              f"tono {tone_db(audio, OTHER_APP):.0f} dB")
+    except Exception as exc:  # noqa: BLE001 - es solo una referencia
+        print(f"  no se pudo: {type(exc).__name__}: {exc}")
+    print("\n== Referencia: PyAudioWPatch (dispositivo [Loopback] de PortAudio) ==", flush=True)
+    try:
+        import pyaudiowpatch as pyaudio
+
+        pa = pyaudio.PyAudio()
+        info = pa.get_default_wasapi_loopback()
+        rate, channels = int(info["defaultSampleRate"]), int(info["maxInputChannels"])
+        stream = pa.open(format=pyaudio.paFloat32, channels=channels, rate=rate, input=True,
+                         input_device_index=info["index"], frames_per_buffer=1024)
+        chunks = []
+        done = [False]
+
+        def reader() -> None:
+            while not done[0]:
+                chunks.append(np.frombuffer(stream.read(1024, exception_on_overflow=False), dtype=np.float32))
+
+        import threading
+
+        thread = threading.Thread(target=reader)
+        thread.start()
+        time.sleep(0.3)
+        play_from_other_app(OTHER_APP, 1.5)
+        done[0] = True
+        thread.join()
+        stream.close()
+        pa.terminate()
+        audio = np.concatenate(chunks).reshape(-1, channels).mean(axis=1) if chunks else np.zeros(0)
+        from scipy.signal import resample_poly
+
+        audio = resample_poly(audio, RATE, rate)
+        print(f"  {info['name']}: pico {20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9)):.0f} dB, "
+              f"tono {tone_db(audio, OTHER_APP):.0f} dB")
+    except Exception as exc:  # noqa: BLE001 - es solo una referencia
+        print(f"  no se pudo: {type(exc).__name__}: {exc}")
+
+
 def main() -> None:
     print(f"Windows {sys.getwindowsversion().build} | salida predeterminada: {sd.query_devices(kind='output')['name']}")
+    reference_libraries()
     supported = process_loopback_supported()
     print(f"Grabar todo menos clonavoz: {'se puede' if supported else 'no (Windows viejo)'}")
     for exclude in ([True] if supported else []) + [False]:

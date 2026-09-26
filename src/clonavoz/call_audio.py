@@ -237,8 +237,11 @@ class _WasapiLoopback:
         self.rate = self.channels = 0
         self.dtype = np.dtype(np.float32)
         self.block_align = 0
-        # Para diagnosticar: paquetes que mandó Windows y cuántos venían marcados como silencio.
+        # Para diagnosticar: paquetes que mandó Windows, cuántos venían marcados
+        # como silencio y el pico de lo recibido.
         self.packets = self.silent_packets = 0
+        self.flags_seen = 0
+        self.peak = 0.0
 
     def open(self) -> None:
         try:
@@ -349,12 +352,15 @@ class _WasapiLoopback:
                 get_buffer(byref(data), byref(frames), byref(flags), byref(position), byref(qpc))
                 count = frames.value
                 self.packets += 1
+                self.flags_seen |= flags.value
                 if flags.value & _BUFFER_SILENT or not data.value:
                     self.silent_packets += 1
                     raw = bytes(count * self.block_align)
                 else:
                     raw = ctypes.string_at(data.value, count * self.block_align)
                 release_buffer(count)
+                if raw.strip(b"\x00"):
+                    self.peak = max(self.peak, float(np.abs(np.frombuffer(raw, dtype=self.dtype)).max()))
                 assembler.push_bytes(raw)
                 got = True
             now = time.monotonic()
@@ -414,7 +420,7 @@ class CallAudioStream:
             return "sin abrir"
         return (
             f"{w.rate} Hz, {w.channels} canal(es), {w.dtype.name}; {w.packets} paquetes "
-            f"({w.silent_packets} marcados como silencio)"
+            f"({w.silent_packets} marcados como silencio, marcas {w.flags_seen:#x}, pico {w.peak:g})"
         )
 
     def start(self) -> None:
