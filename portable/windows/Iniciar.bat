@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
+set "AQUI=%~dp0"
 title clonavoz portable
 rem Lo que elegiste queda guardado en la carpeta "datos" (en el pendrive).
 set "ORIGEN=es"
@@ -17,6 +18,7 @@ if exist "datos\voz.txt" for /f "usebackq tokens=1" %%a in ("datos\voz.txt") do 
 if exist "datos\su_voz.txt" for /f "usebackq tokens=1" %%a in ("datos\su_voz.txt") do set "SU_VOZ=%%a"
 if not defined ESCUCHO set "ESCUCHO=%ORIGEN%"
 if not defined DESTINO set "DESTINO=auto"
+call :ver_cable
 
 rem La primera vez, todo solo: se bajan los modelos y se graba tu voz.
 if not exist "datos\modelos_listos.txt" if not defined CLONAVOZ_SIN_DESCARGA goto primera_vez
@@ -33,6 +35,7 @@ echo    Te pueden hablar en: %SUS_IDIOMAS% (o cualquier otro)   Lo escuchas en: 
 echo    Tu voz: %VOZ%   La voz de los demas: %SU_VOZ%
 if not exist "datos\mi_voz.wav" echo    Todavia no grabaste tu voz: usa la opcion 5.
 if not exist "datos\modelos_listos.txt" echo    Faltan los modelos: usa la opcion 10 (una sola vez, con internet).
+if "%CABLE%"=="no" echo    En esta PC falta el microfono virtual VB-CABLE: opcion 11 (viene incluido).
 echo.
 echo    1. Conversacion en videollamada: vos y ellos, traducidos (automatico)
 echo    2. Solo escuchar traducido lo que dicen (llamadas, videos, reuniones)
@@ -47,6 +50,7 @@ echo   10. Descargar o actualizar los modelos (con internet)
 echo   11. Instalar el microfono virtual VB-CABLE en esta PC
 echo   12. Ver dispositivos de audio
 echo   13. Apps que no dejan elegir microfono: poner CABLE Output como predeterminado
+echo   14. Quitar VB-CABLE de esta PC (para no dejar nada instalado)
 echo    0. Salir
 echo.
 set "OPCION="
@@ -66,6 +70,7 @@ if "%OPCION%"=="10" goto descargar
 if "%OPCION%"=="11" goto vbcable
 if "%OPCION%"=="12" goto dispositivos
 if "%OPCION%"=="13" goto predeterminado
+if "%OPCION%"=="14" goto quitar_cable
 if "%OPCION%"=="0" exit /b 0
 goto menu
 
@@ -94,6 +99,8 @@ exit /b 0
 
 :conversar
 if not exist "datos\mi_voz.wav" goto falta_voz
+call :necesita_cable
+if "%CABLE%"=="no" goto sin_cable
 call :permiso
 echo.
 echo En la videollamada elegi como microfono: CABLE Output. Usa auriculares.
@@ -114,6 +121,8 @@ goto menu
 
 :llamada
 if not exist "datos\mi_voz.wav" goto falta_voz
+call :necesita_cable
+if "%CABLE%"=="no" goto sin_cable
 echo.
 echo En la videollamada elegi como microfono: CABLE Output
 echo Para terminar, presiona Ctrl+C (y si pregunta si terminar el trabajo por lotes, responde N).
@@ -135,6 +144,36 @@ echo.
 echo Primero graba tu muestra de voz con la opcion 5.
 pause
 goto menu
+
+:sin_cable
+echo.
+echo Sin VB-CABLE la otra persona no puede escuchar tu voz traducida. Igual podes
+echo usar la opcion 2 (escuchar traducido lo que te dicen) y la 4.
+pause
+goto menu
+
+:ver_cable
+rem Si VB-CABLE (el microfono virtual) ya esta instalado en esta PC.
+set "CABLE=no"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%AQUI%vbcable.ps1" -Verificar >nul 2>&1
+if not errorlevel 1 set "CABLE=si"
+exit /b 0
+
+:necesita_cable
+if "%CABLE%"=="si" exit /b 0
+echo.
+echo Para que te escuchen en la videollamada hace falta el microfono virtual VB-CABLE
+echo (gratis, de VB-Audio: www.vb-cable.com). Viene incluido: no necesita internet.
+echo Se instala una vez por PC, con su instalador oficial, y pide permiso de administrador.
+set "RESP="
+set /p "RESP=Instalarlo ahora en esta PC? (s/n): "
+if /i "%RESP%"=="s" call :instalar_cable
+exit /b 0
+
+:instalar_cable
+powershell -NoProfile -ExecutionPolicy Bypass -File "%AQUI%vbcable.ps1"
+call :ver_cable
+exit /b 0
 
 :primera_vez
 call :calcular
@@ -166,6 +205,7 @@ echo Habla con normalidad, sin ruido de fondo, como si charlaras con alguien.
 echo Queda guardada en la carpeta "datos" de este pendrive, no en esta PC.
 pause
 call clonavoz.bat enroll --seconds 15
+call :necesita_cable
 pause
 goto menu
 
@@ -238,13 +278,19 @@ goto menu
 
 :vbcable
 echo.
-echo VB-CABLE es el microfono virtual gratuito por donde sale tu voz traducida.
-echo Se instala una vez por PC y hace falta ser administrador:
-echo   1. Se va a abrir la pagina oficial: descarga el ZIP del driver.
-echo   2. Extraelo y ejecuta VBCABLE_Setup_x64.exe como administrador.
-echo   3. Reinicia la PC.
-echo Sin VB-CABLE igual podes usar la opcion 2 (escuchar traducido) y la 4.
-start "" "https://vb-audio.com/Cable/"
+echo VB-CABLE es el microfono virtual gratuito (de VB-Audio: www.vb-cable.com) por
+echo donde sale tu voz traducida. Viene incluido, tal cual lo publica su autor: se
+echo abre su instalador oficial, que pide permiso de administrador (una vez por PC).
+if "%CABLE%"=="si" echo En esta PC ya esta instalado.
+call :instalar_cable
+pause
+goto menu
+
+:quitar_cable
+echo.
+echo Se abre el instalador oficial de VB-CABLE: toca "Remove Driver" para quitarlo
+echo de esta PC (despues conviene reiniciarla). Tu voz y los modelos siguen en el pendrive.
+call :instalar_cable
 pause
 goto menu
 

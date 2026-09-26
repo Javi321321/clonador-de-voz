@@ -41,6 +41,17 @@ jobs:
           call dist\clonavoz-portable\clonavoz.bat languages || exit /b 1
           call dist\clonavoz-portable\clonavoz.bat devices || exit /b 1
 
+      - name: VB-CABLE viene incluido (paquete oficial) y el menú sabe si falta
+        shell: pwsh
+        run: |
+          $zip = "dist\clonavoz-portable\vbcable\VBCABLE_Driver_Pack45.zip"
+          if (-not (Test-Path $zip)) { throw "falta el paquete de VB-CABLE" }
+          "SHA256 del paquete incluido: $((Get-FileHash -Algorithm SHA256 $zip).Hash)"
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Verificar
+          if ($LASTEXITCODE -ne 1) { throw "en esta máquina no está instalado y dijo otra cosa (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Predeterminados
+          if ($LASTEXITCODE -ne 0) { throw "no se pudieron leer los dispositivos predeterminados" }
+
       - name: El menú de Iniciar.bat abre y sale con la opción 0
         shell: cmd
         timeout-minutes: 2
@@ -126,6 +137,14 @@ jobs:
       - name: Encender el audio de Windows e instalar VB-CABLE
         shell: pwsh
         run: ./portable/instalar_vbcable_ci.ps1
+
+      - name: El menú detecta VB-CABLE y maneja los dispositivos predeterminados
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Verificar
+          if ($LASTEXITCODE -ne 0) { throw "no detectó VB-CABLE instalado (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Predeterminados
+          if ($LASTEXITCODE -ne 0) { throw "no se pudieron leer ni volver a poner los predeterminados" }
 
       - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
         shell: cmd

@@ -10,9 +10,10 @@ Cómo usarlo
    Si Windows avisa "Windows protegió su PC": "Más información" y "Ejecutar
    de todas formas" (el programa no está firmado, es gratis y abierto).
 2. La primera vez todo es solo: se instala en la carpeta "clonavoz" del
-   pendrive, baja los modelos (~2.5 GB, con internet, una sola vez; te pide un
-   token para la "voz natural", ver abajo, o Enter para saltearla) y te pide
-   grabar 15 segundos de tu voz.
+   pendrive, baja los modelos (~2.7 GB, con internet, una sola vez; te pide un
+   token para la "voz natural", ver abajo, o Enter para saltearla), te pide
+   grabar 15 segundos de tu voz y te ofrece instalar el micrófono virtual
+   VB-CABLE en esa PC (ver abajo).
 3. Opción 1: conversación en videollamada, en las dos direcciones. En
    Zoom/Meet/Teams/Discord/WhatsApp elegí "CABLE Output" como micrófono y usá
    auriculares:
@@ -58,12 +59,26 @@ tuya). Una sola vez, gratis:
   4. Opción 10 del menú y pegá el token cuando lo pida (no se ve al pegarlo).
 El token no se guarda. Después funciona sin internet.
 
+Micrófono virtual VB-CABLE
+--------------------------
+Es por donde la videollamada escucha tu voz traducida. Viene incluido (en la
+carpeta "vbcable", tal cual lo publica su autor): no hace falta internet. Es un
+driver de Windows, así que no puede funcionar desde el pendrive: se instala
+una vez en cada PC, con su instalador oficial y permiso de administrador. La
+primera vez (o cuando lo necesites, o con la opción 11) clonavoz te ofrece
+instalarlo: Windows pide permiso, tocás "Install Driver" y listo. Si Windows lo
+deja como parlante o micrófono predeterminado, clonavoz vuelve a poner los que
+tenías. Para no dejar nada en una PC prestada, la opción 14 lo quita.
+VB-CABLE es de VB-Audio Software (www.vb-cable.com), gratis para usar
+("donationware": si te sirve, podés colaborar con su autor).
+
 Tu voz y tus datos
 ------------------
 Todo queda dentro de la carpeta "datos" (en el pendrive): tu muestra de voz,
 los modelos y lo que elegiste. En la computadora donde lo usás no se guarda
 nada tuyo. Lo único que se instala en esa PC, y solo si lo elegís, es el
-micrófono virtual VB-CABLE (opción 11), que necesita ser administrador.
+micrófono virtual VB-CABLE (opción 11; la 14 lo quita), que necesita ser
+administrador.
 
 Si esa PC no te deja instalar VB-CABLE, igual podés usar la opción 2 (escuchar
 traducido) y la 4 (tu voz traducida en tus auriculares).

@@ -49,6 +49,26 @@ VC_RUNTIME_DLLS = [
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHERS = Path(__file__).resolve().parent / "windows"
+# El micrófono virtual VB-CABLE (VB-Audio Software, www.vb-cable.com), tal cual:
+# su licencia permite copiar y distribuir el paquete sin modificarlo, pero no
+# meterlo en el instalador de otro programa. Por eso va adentro sin tocarlo y
+# se instala solo si lo elegís, con su propio instalador (ver windows/vbcable.ps1).
+VBCABLE_URL = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
+VBCABLE_SHA256 = "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb"
+VBCABLE_NOTE = """VB-CABLE (micrófono virtual)
+============================
+
+VBCABLE_Driver_Pack45.zip es el paquete oficial de VB-CABLE, tal cual lo
+publica su autor, sin ninguna modificación.
+
+Origen: www.vb-cable.com (VB-Audio Software, © Vincent Burel).
+VB-CABLE es donationware: si te sirve, podés colaborar con su autor en
+https://vb-audio.com/Cable/
+
+clonavoz no lo instala por su cuenta: desde el menú (opción 11) se abre su
+instalador oficial, que pide permiso de administrador. Su licencia está en el
+readme.txt de adentro del zip.
+"""
 
 
 def _run(cmd: list[str], **kwargs) -> None:
@@ -86,6 +106,28 @@ def _install_packages(site_packages: Path) -> None:
         if sys.version_info[:2] != tuple(int(x) for x in PYTHON_VERSION.split(".")[:2]):
             cmd.append("--no-compile")  # los .pyc de otra versión de Python no sirven
         _run(cmd)
+
+
+def _include_vbcable(target: Path) -> None:
+    """Deja el paquete oficial de VB-CABLE en `vbcable/`, verificado (si no se
+    puede bajar, el menú abre la página oficial)."""
+    import hashlib
+
+    print("Incluyendo el paquete oficial de VB-CABLE...", flush=True)
+    try:
+        with urllib.request.urlopen(VBCABLE_URL, timeout=120) as response:
+            data = response.read()
+    except OSError as exc:
+        print(f"AVISO: no se pudo bajar VB-CABLE ({exc}): el menú va a abrir la página oficial.")
+        return
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != VBCABLE_SHA256:
+        print(f"AVISO: el paquete de VB-CABLE no es el esperado (SHA256 {digest}): no se incluye.")
+        return
+    folder = target / "vbcable"
+    folder.mkdir(exist_ok=True)
+    (folder / "VBCABLE_Driver_Pack45.zip").write_bytes(data)
+    (folder / "LEEME_VB-CABLE.txt").write_text(VBCABLE_NOTE.replace("\n", "\r\n"), encoding="utf-8-sig", newline="")
 
 
 def _copy_vc_runtime(python_dir: Path) -> None:
@@ -179,6 +221,7 @@ def main() -> None:
 
     for launcher in LAUNCHERS.iterdir():
         shutil.copy2(launcher, target / launcher.name)
+    _include_vbcable(target)
     datos = target / "datos"
     datos.mkdir(exist_ok=True)
     (datos / "NO_BORRAR.txt").write_text(

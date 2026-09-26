@@ -319,6 +319,13 @@ programa no está firmado: es gratis y abierto). La primera vez todo es automát
 2. Baja los modelos (~2.7 GB, necesita internet una sola vez; ahí te pide el token para
    la [voz natural](#voz-natural-recomendada), o Enter para saltearla).
 3. Te pide grabar 15 segundos de tu voz.
+4. Te ofrece instalar el micrófono virtual **VB-CABLE** en esa PC: viene incluido en el
+   `.exe` (sin internet), pero es un driver de Windows y no puede funcionar desde el
+   pendrive: se instala una vez por PC, con su instalador oficial y permiso de
+   administrador (Windows pregunta, tocás "Install Driver"). Si Windows lo deja como
+   parlante o micrófono predeterminado (y dejás de escuchar la PC), clonavoz vuelve a
+   poner los que tenías. La opción **14** del menú lo quita (para no dejar nada en una PC
+   prestada).
 
 Después aparece el menú: opción **1** para una conversación en videollamada en las dos
 direcciones (en la app elegí "CABLE Output" como micrófono y usá auriculares), **2** para
@@ -334,7 +341,7 @@ bastante más rápido que desde uno USB 2.0.
 **Qué queda en la otra computadora: nada tuyo.** Tu muestra de voz, los modelos y los
 idiomas elegidos se guardan en la carpeta `datos` de la versión portable. Lo único que se
 instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (opción 11:
-necesita permisos de administrador y reiniciar). Si no podés instalarlo, igual podés usar
+necesita permisos de administrador; la opción 14 lo quita). Si no podés instalarlo, igual podés usar
 la opción 2 (escuchar traducido lo que te dicen) y la 4 (tu traducción en auriculares).
 clonavoz además desactiva la telemetría de las librerías que la traen
 activada (por ejemplo onnxruntime, que si no guardaría un identificador en esa PC). Cuidá
@@ -420,7 +427,9 @@ Solución de problemas más abajo.
 ## Instalar el micrófono virtual (una vez, según tu sistema operativo)
 
 ### Windows
-Instala [VB-CABLE](https://vb-audio.com/Cable/) (gratis). Tras instalarlo y reiniciar,
+Instala [VB-CABLE](https://vb-audio.com/Cable/) (gratis). En la versión portable viene
+incluido: opción 11 del menú (ver [Versión portable](#versión-portable-windows-un-solo-exe-para-el-pendrive)).
+Tras instalarlo y reiniciar,
 aparecen dos dispositivos, que son las dos puntas del mismo cable:
 
 - **"CABLE Input"** (dispositivo de *salida*): ahí clonavoz reproduce tu voz traducida.
@@ -578,6 +587,11 @@ cambio de un poco más de demora.
   hindi, serbio y tailandés son de uso no comercial, y las de árabe, chino, hebreo,
   indonesio, suajili y las voces agudas de ruso y sueco no declaran una licencia clara
   (ver el `MODEL_CARD` de cada voz en https://huggingface.co/rhasspy/piper-voices).
+- VB-CABLE (micrófono virtual de Windows, © Vincent Burel / VB-Audio Software,
+  www.vb-cable.com): donationware. Su licencia permite copiar y distribuir el paquete
+  tal cual, sin modificarlo, pero no integrarlo en el instalador de otro programa: por eso
+  la versión portable lo trae sin tocar y solo se instala si lo elegís, con su instalador
+  oficial. Si te sirve, podés colaborar con su autor.
 - Pocket TTS (voz natural): código MIT; modelo CC-BY-4.0, © Kyutai
   (https://kyutai.org), con la condición de no clonar voces sin el consentimiento de su
   dueño ni usarlas para engañar.
