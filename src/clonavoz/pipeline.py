@@ -152,13 +152,21 @@ class LiveVoicePipeline:
         self.stream_playback = False
         self._processing = False
         self._playing = False
+        self.last_played = 0.0  # time.monotonic() de cuando terminó de sonar la última frase
         # Segundos de traducción generados que todavía no sonaron: si la
         # traducción se atrasa, se habla un poco más rápido para alcanzarte.
         self._backlog = 0.0
         self._backlog_lock = threading.Lock()
         self._last_error = ""
         self._threads: list[threading.Thread] = []
+        # Otros idiomas destino ya preparados (código -> (idioma, traductor)).
+        self._targets: dict[str, tuple[Language, Translator]] = {}
+        # Si devuelve True, no se escucha el micrófono (ej. mientras suena en tus
+        # auriculares la traducción de lo que te dijeron: si usás parlantes, el
+        # micrófono la escucharía y la traduciría de vuelta a la llamada).
+        self.muted_while = None
         self._warm_up()
+        self._targets[self.target_language.code] = (self.target_language, self._translator)
 
     def _make_vad(self) -> StreamingVAD:
         """Con Parakeet, corta cada idea mientras hablás (ver simultaneous.py). Con
@@ -362,6 +370,11 @@ class LiveVoicePipeline:
         if not any(t.is_alive() for t in self._threads if t.name == "reproduccion"):
             self.output.close()
 
+    @property
+    def playing(self) -> bool:
+        """Si está sonando (o por sonar) una traducción, o terminó hace muy poco."""
+        return self._playing or self._audio_out_queue.qsize() > 0 or time.monotonic() - self.last_played < 0.3
+
     def poll_status(self) -> LiveStatus:
         return LiveStatus(
             level_db=self.mic.pop_level_db(),
@@ -370,13 +383,19 @@ class LiveVoicePipeline:
             playing=self._playing or self._audio_out_queue.qsize() > 0,
         )
 
+    def _filter_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Lo que llega del micrófono, antes del detector de voz (ver `muted_while`)."""
+        if self.muted_while is not None and self.muted_while():
+            return np.zeros_like(frame)
+        return frame
+
     def _vad_loop(self) -> None:
         try:
             while True:
                 frame = self._frame_queue.get()
                 if frame is _SENTINEL:
                     return
-                utterance = self._vad.push(frame)
+                utterance = self._vad.push(self._filter_frame(frame))
                 if utterance is not None and len(utterance.audio) > 0:
                     self._text_queue.put((utterance, time.time()))
         except Exception as exc:  # noqa: BLE001 - se reporta en la consola vía self.error
@@ -390,44 +409,78 @@ class LiveVoicePipeline:
             utterance, start_time = item
             self._processing = True
             try:
-                text_src = utterance.text
-                if text_src is None:
-                    text_src = self._asr.transcribe(utterance.audio, self.source_language.whisper_code)
-                if not text_src:
-                    continue
-                if self._asr.streaming:  # Vosk no pone puntos ni signos de pregunta
-                    text_src = restore_punctuation(text_src, self.source_language.code)
-                text_tgt = self._translator.translate(text_src)
-                if self.on_transcript:
-                    self.on_transcript(text_src, text_tgt)
-                self.stats.last_transcript = (text_src, text_tgt)
-
-                self.stats.utterances_processed += 1
-                self._speak(text_tgt)
+                self._process(utterance)
                 self.stats.last_latency_seconds = time.time() - start_time
             except Exception as exc:  # noqa: BLE001 - una frase con error no debe tumbar el pipeline
                 self._report_phrase_error(exc)
             finally:
                 self._processing = False
 
+    def _process(self, utterance) -> None:
+        """Una frase tuya: entenderla, traducirla y decirla con tu voz."""
+        text_src = utterance.text
+        if text_src is None:
+            text_src = self._asr.transcribe(utterance.audio, self.source_language.whisper_code)
+        if not text_src:
+            return
+        if self._asr.streaming:  # Vosk no pone puntos ni signos de pregunta
+            text_src = restore_punctuation(text_src, self.source_language.code)
+        language, translator = self.target_language, self._translator
+        text_tgt = translator.translate(text_src)
+        if self.on_transcript:
+            self.on_transcript(text_src, text_tgt)
+        self.stats.last_transcript = (text_src, text_tgt)
+        self.stats.utterances_processed += 1
+        self._speak(text_tgt, language)
+
+    def prepare_languages(self, codes) -> None:
+        """Deja listos el traductor y la voz de otros idiomas destino, para
+        cambiar al instante (ver `switch_target`). Los que no se puedan, se
+        saltean con un aviso."""
+        for code in codes:
+            if code == self.source_language.code or code in self._targets:
+                continue
+            try:
+                language = get_language(code)
+                translator = Translator(
+                    self.source_language.nllb_code, language.nllb_code, device=self.profile.device,
+                    pair=(self.source_language.code, code),
+                )
+                self._synth.preload(language)
+            except Exception as exc:  # noqa: BLE001 - ese idioma no, los demás sí
+                self.on_message(f"[clonavoz] No se pudo preparar tu voz en '{code}': {exc}")
+                continue
+            self._targets[code] = (language, translator)
+
+    def switch_target(self, code: str) -> bool:
+        """Desde la próxima frase, te escuchan en `code` (si ya está preparado)."""
+        if code == self.target_language.code:
+            return True
+        if code not in self._targets:
+            return False
+        language, translator = self._targets[code]
+        self._translator, self.target_language = translator, language
+        return True
+
     def _queue_audio(self, item: tuple, seconds: float) -> None:
         with self._backlog_lock:
             self._backlog += seconds
         self._audio_out_queue.put(item)
 
-    def _speak(self, text: str) -> None:
+    def _speak(self, text: str, language: Language | None = None) -> None:
         """Genera la traducción con tu voz y la deja lista para sonar. Se genera
         acá, adelantada a lo que está sonando, así entre frase y frase no quedan
         huecos; con la voz natural, de a pedacitos, que empiezan a sonar apenas
         se generan si no hay nada sonando."""
-        if not self.stream_playback:
+        language = language or self.target_language
+        if not (self.stream_playback and self._synth.can_stream(language)):
             # De a partes (cortadas en las comas): la primera empieza a sonar
             # mientras se generan las demás.
             for part in clauses(text):
-                audio, rate = self._synth.synthesize(part, self.target_language)
+                audio, rate = self._synth.synthesize(part, language)
                 self._queue_audio(("audio", audio, rate), len(audio) / rate)
             return
-        chunks, rate = self._synth.stream(text, self.target_language)
+        chunks, rate = self._synth.stream(text, language)
         self._audio_out_queue.put(("stream_start", rate))
         try:
             for chunk in chunks:
@@ -518,5 +571,6 @@ class LiveVoicePipeline:
                         self._played(len(audio) / rate)
                 finally:
                     self._playing = False
+                    self.last_played = time.monotonic()
         except Exception as exc:  # noqa: BLE001 - se reporta en la consola vía self.error
             self.error = exc

@@ -237,3 +237,26 @@ class PocketVoice:
         model, state = self._model(language_code), self._state(language_code)
         for chunk in model.generate_audio_stream(state, text):
             yield chunk.reshape(-1).numpy().astype(np.float32)
+
+
+class PocketVoiceFromAudio(PocketVoice):
+    """Una voz clonada de un audio en memoria (lo que va diciendo la otra
+    persona, solo si dio su permiso): no se guarda nada en disco."""
+
+    def __init__(self, audio: np.ndarray, sample_rate: int, int8: bool | None = None) -> None:
+        super().__init__(Path("en-memoria.wav"), int8=int8)
+        self._audio, self._audio_rate = np.asarray(audio, dtype=np.float32), sample_rate
+
+    def _state(self, language_code: str):
+        if language_code not in self._states:
+            import torch
+            from scipy.signal import resample_poly
+
+            model = self._model(language_code)
+            if not model.has_voice_cloning:
+                raise RuntimeError("Falta descargar la voz natural (con clonación) para este idioma.")
+            divisor = np.gcd(self.sample_rate, self._audio_rate)
+            audio = resample_poly(self._audio, self.sample_rate // divisor, self._audio_rate // divisor)
+            prompt = torch.from_numpy(np.asarray(audio, dtype=np.float32)[: 30 * self.sample_rate]).unsqueeze(0)
+            self._states[language_code] = model.get_state_for_audio_prompt(prompt)
+        return self._states[language_code]

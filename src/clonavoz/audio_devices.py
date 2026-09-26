@@ -101,6 +101,13 @@ def virtual_mic_name(output_device_name: str) -> str | None:
     return None
 
 
+def is_virtual_output(name: str) -> bool:
+    """True si `name` es la punta de salida de un cable virtual (lo que después
+    graba la videollamada), y no parlantes o auriculares de verdad."""
+    lowered = name.lower()
+    return any(hint in lowered for hint in _VIRTUAL_DEVICE_HINTS.get(platform.system(), []))
+
+
 def find_virtual_output_device() -> AudioDevice | None:
     """Busca por nombre un dispositivo de salida que sea un micrófono
     virtual ya instalado, para usarlo como salida del audio traducido."""

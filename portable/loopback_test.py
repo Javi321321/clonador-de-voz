@@ -91,7 +91,7 @@ def read_path_with_microphone() -> bool:
     return level > -40
 
 
-def run(exclude: bool) -> None:
+def run(exclude: bool, loopback_here: bool) -> None:
     print(f"\n== Grabar lo que suena, {'menos clonavoz' if exclude else 'todo'} ==", flush=True)
     frames: list[np.ndarray] = []
     stream = CallAudioStream(on_frame=frames.append, exclude_own_audio=exclude)
@@ -130,17 +130,22 @@ def run(exclude: bool) -> None:
     other = tone_db(audio[: split * 512], OTHER_APP)
     own = tone_db(audio[split * 512 :], CLONAVOZ)
     print(f"  tono de otro programa: {other:.0f} dB | tono de clonavoz: {own:.0f} dB")
+    check(stream.error is None, f"sin errores al grabar ({stream.error})")
+    if not loopback_here:
+        print("  (esta máquina no entrega audio por loopback: no se puede verificar qué llega)")
+        return
     check(other > -40, "llega lo que suena en otro programa (la llamada)")
     if exclude:
         check(own < -70, "no llega lo que reproduce clonavoz")
     else:
         check(own > -40, "llega también lo que reproduce clonavoz (por eso hay que no escuchar mientras suena)")
-    check(stream.error is None, f"sin errores al grabar ({stream.error})")
 
 
-def reference_libraries() -> None:
-    """Lo mismo con librerías conocidas, para comparar (si también graban ceros,
-    el problema es de la máquina y no de call_audio)."""
+def reference_libraries() -> bool:
+    """Lo mismo con librerías conocidas, para comparar. Devuelve si alguna grabó
+    el tono: en las máquinas virtuales de GitHub, con VB-CABLE como única salida,
+    ninguna graba nada por loopback (ceros), y ahí no se puede verificar."""
+    heard = []
     print("\n== Referencia: soundcard (loopback de la salida predeterminada) ==", flush=True)
     try:
         import soundcard as sc
@@ -152,6 +157,7 @@ def reference_libraries() -> None:
         child.wait()
         print(f"  {speaker.name}: pico {20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9)):.0f} dB, "
               f"tono {tone_db(audio, OTHER_APP):.0f} dB")
+        heard.append(tone_db(audio, OTHER_APP) > -40)
     except Exception as exc:  # noqa: BLE001 - es solo una referencia
         print(f"  no se pudo: {type(exc).__name__}: {exc}")
     print("\n== Referencia: PyAudioWPatch (dispositivo [Loopback] de PortAudio) ==", flush=True)
@@ -186,19 +192,21 @@ def reference_libraries() -> None:
         audio = resample_poly(audio, RATE, rate)
         print(f"  {info['name']}: pico {20 * np.log10(max(np.abs(audio).max(initial=0), 1e-9)):.0f} dB, "
               f"tono {tone_db(audio, OTHER_APP):.0f} dB")
+        heard.append(tone_db(audio, OTHER_APP) > -40)
     except Exception as exc:  # noqa: BLE001 - es solo una referencia
         print(f"  no se pudo: {type(exc).__name__}: {exc}")
+    return any(heard)
 
 
 def main() -> None:
     print(f"Windows {sys.getwindowsversion().build} | salida predeterminada: {sd.query_devices(kind='output')['name']}")
     read_path_with_microphone()
-    reference_libraries()
+    loopback_here = reference_libraries()
     supported = process_loopback_supported()
     print(f"Grabar todo menos clonavoz: {'se puede' if supported else 'no (Windows viejo)'}")
     for exclude in ([True] if supported else []) + [False]:
         try:
-            run(exclude)
+            run(exclude, loopback_here)
         except Exception as exc:  # noqa: BLE001 - que se vea y que siga con el otro modo
             check(False, f"{type(exc).__name__}: {exc}")
     if FAILURES:

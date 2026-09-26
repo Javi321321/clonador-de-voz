@@ -48,7 +48,7 @@ class SpeechRecognizer:
         self._model = None
         if language_code is not None and parakeet and parakeet_asr.usable(language_code):
             cores = psutil.cpu_count(logical=False) or 2
-            self._parakeet = parakeet_asr.ParakeetRecognizer(threads=max(1, min(4, cores)))
+            self._parakeet = parakeet_asr.shared(threads=max(1, min(4, cores)))
             self.name = "Parakeet"
             return
         if language_code is not None and vosk_asr.ready(language_code):
@@ -80,28 +80,34 @@ class SpeechRecognizer:
     def transcribe_timed(self, audio: np.ndarray) -> tuple[list[str], list[float]]:
         return self._parakeet.transcribe_timed(audio)
 
+    def _encode_short(self, audio: np.ndarray) -> tuple[object, int] | None:
+        """(audio codificado por Whisper, cuadros) con una ventana corta, o None
+        si la frase es larga para eso."""
+        features = self._model.feature_extractor(np.asarray(audio, dtype=np.float32))
+        frames = features.shape[-1]
+        for max_frames, window_frames in _SHORT_WINDOWS:
+            if frames <= max_frames:
+                window = np.zeros((features.shape[0], window_frames), dtype=features.dtype)
+                window[:, :frames] = features  # el resto, como el relleno que usa faster-whisper
+                return self._model.encode(window), frames
+        return None
+
     def _transcribe_short(self, audio: np.ndarray, whisper_language: str) -> str | None:
         """Una frase corta, con una ventana chica y una sola pasada por ventana.
         None si la frase es larga o ninguna ventana dio un resultado confiable
         (se repite o Whisper duda): ahí se usa el camino normal, con la ventana
         de 30 s y sus reintentos."""
-        features = self._model.feature_extractor(np.asarray(audio, dtype=np.float32))
-        for max_frames, window_frames in _SHORT_WINDOWS:
-            if features.shape[-1] <= max_frames:
-                text = self._transcribe_window(features, window_frames, whisper_language)
-                if text is not None:
-                    return text
-        return None
+        encoded = self._encode_short(audio)
+        if encoded is None:
+            return None
+        return self._generate(*encoded, whisper_language)
 
-    def _transcribe_window(self, features: np.ndarray, window_frames: int, whisper_language: str) -> str | None:
+    def _generate(self, encoded, frames: int, whisper_language: str) -> str | None:
         model = self._model
-        frames = features.shape[-1]
-        window = np.zeros((features.shape[0], window_frames), dtype=features.dtype)
-        window[:, :frames] = features  # el resto, como el relleno que usa faster-whisper
         tokenizer = Tokenizer(model.hf_tokenizer, model.model.is_multilingual, task="transcribe", language=whisper_language)
         prompt = model.get_prompt(tokenizer, [], without_timestamps=False)
         result = model.model.generate(
-            model.encode(window),
+            encoded,
             [prompt],
             beam_size=1,
             max_length=len(prompt) + 20 + frames // 8,  # si se traba repitiendo, corta pronto
@@ -116,6 +122,27 @@ class SpeechRecognizer:
         if _compression_ratio(text) > 2.4 or avg_logprob < -1.0:
             return None
         return text
+
+    def language_probabilities(self, audio: np.ndarray) -> tuple[dict[str, float], object]:
+        """Qué tan probable es cada idioma (código de Whisper), según los primeros
+        7 s. Devuelve también lo codificado, para transcribir después sin volver
+        a codificar (con `transcribe_encoded`) si la frase es corta."""
+        clip = np.asarray(audio, dtype=np.float32)[: 7 * 16000]
+        encoded = self._encode_short(clip)
+        result = self._model.model.detect_language(encoded[0])[0]
+        probabilities = {token[2:-2]: prob for token, prob in result}
+        return probabilities, (encoded if len(clip) == len(audio) else None)
+
+    def transcribe_encoded(self, audio: np.ndarray, whisper_language: str, encoded=None) -> str:
+        """Como `transcribe`, aprovechando lo que ya codificó `language_probabilities`."""
+        if encoded is not None:
+            try:
+                text = self._generate(*encoded, whisper_language)
+            except Exception:  # noqa: BLE001 - ante cualquier problema, el camino normal
+                text = None
+            if text is not None:
+                return text
+        return self.transcribe(audio, whisper_language)
 
     def transcribe(self, audio: np.ndarray, whisper_language: str) -> str:
         if self._parakeet is not None:

@@ -13,6 +13,7 @@ Usa unos 900 MB de memoria, así que solo se usa en computadoras con al menos
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +61,20 @@ def download() -> None:
     _snapshot(local_only=False)
 
 
+_shared: ParakeetRecognizer | None = None
+_shared_lock = threading.Lock()
+
+
+def shared(threads: int) -> ParakeetRecognizer:
+    """Uno solo por programa: entiende todos sus idiomas, así que lo usan a la
+    vez lo que decís vos y lo que te dicen (900 MB de memoria una sola vez)."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            _shared = ParakeetRecognizer(threads)
+        return _shared
+
+
 class ParakeetRecognizer:
     def __init__(self, threads: int) -> None:
         import onnx_asr
@@ -75,12 +90,15 @@ class ParakeetRecognizer:
             "nemo-parakeet-tdt-0.6b-v3", path=_snapshot(local_only=True), quantization="int8", sess_options=options
         )
         self._timed = self._model.with_timestamps()
+        self._lock = threading.Lock()  # de a una frase por vez (tu voz y la de los demás)
 
     def transcribe(self, audio: np.ndarray) -> str:
-        return str(self._model.recognize(np.asarray(audio, dtype=np.float32), sample_rate=16000)).strip()
+        with self._lock:
+            return str(self._model.recognize(np.asarray(audio, dtype=np.float32), sample_rate=16000)).strip()
 
     def transcribe_timed(self, audio: np.ndarray) -> tuple[list[str], list[float]]:
         """Los pedazos de texto reconocidos (las palabras empiezan con espacio;
         comas y puntos van aparte) y en qué segundo empieza cada uno."""
-        result = self._timed.recognize(np.asarray(audio, dtype=np.float32), sample_rate=16000)
+        with self._lock:
+            result = self._timed.recognize(np.asarray(audio, dtype=np.float32), sample_rate=16000)
         return list(result.tokens or []), [float(t) for t in (result.timestamps or [])]

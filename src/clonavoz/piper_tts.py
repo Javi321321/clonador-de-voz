@@ -73,6 +73,26 @@ _VOICES: dict[str, tuple[str, ...]] = {
     "sw": ("sw_CD-lanfrica-medium",),
 }
 
+# Para decirte lo que te dicen los demás, en tu idioma: una voz de hombre y
+# una de mujer, según el tono de quien habla (ver listen.TheirVoice). La de
+# mujer en español es es_MX-claude-high (licencia Apache-2.0). Para los demás
+# idiomas se usan las de arriba.
+LISTEN_VOICES: dict[str, tuple[str, str]] = {
+    "es": ("es_ES-davefx-medium", "es_MX-claude-high"),
+    "en": ("en_US-joe-medium", "en_US-ljspeech-medium"),
+}
+
+
+def listen_voices(language_code: str) -> tuple[str, str]:
+    """(voz de hombre, voz de mujer) para decirte algo en `language_code`."""
+    if language_code in _user_overrides():
+        voice = _user_overrides()[language_code]
+        return voice, voice
+    if language_code in LISTEN_VOICES:
+        return LISTEN_VOICES[language_code]
+    return resolve_voice_id(language_code, None), resolve_voice_id(language_code, _HIGH_PITCH_HZ)
+
+
 # Frase que cada voz lee una vez al arrancar para medir su timbre (el
 # conversor necesita la "huella" de la voz de origen). Traducidas con
 # NLLB-200: el contenido da igual, solo tiene que ser habla natural.
@@ -182,6 +202,11 @@ def _ensure_voice_downloaded(voice_id: str) -> Path:
     return onnx_path
 
 
+def ensure_voice(voice_id: str) -> None:
+    """Descarga esa voz si falta."""
+    _ensure_voice_downloaded(voice_id)
+
+
 def download_voices(language_code: str) -> list[str]:
     """Descarga todas las voces base de un idioma (grave y aguda), para poder
     usarlo después sin internet sea cual sea el tono de la muestra de voz."""
@@ -198,11 +223,17 @@ def download_voices(language_code: str) -> list[str]:
 
 
 class PiperSynthesizer:
-    def __init__(self, speaker_pitch_hz: float | None = None) -> None:
+    """`voices`: voz a usar en cada idioma (código -> voz), en vez de elegirla
+    por el tono."""
+
+    def __init__(self, speaker_pitch_hz: float | None = None, voices: dict[str, str] | None = None) -> None:
         self._pitch = speaker_pitch_hz
+        self._fixed = dict(voices or {})
         self._voices: dict[str, object] = {}
 
     def voice_id(self, language_code: str) -> str:
+        if language_code in self._fixed:
+            return self._fixed[language_code]
         return resolve_voice_id(language_code, self._pitch)
 
     def _get_voice(self, language_code: str):
