@@ -1,11 +1,21 @@
 # clonavoz
 
-Traductor de voz **en vivo**, con **clonación de tu propia voz**, para usar dentro de
-videollamadas (Zoom, Google Meet, Microsoft Teams, Discord, o cualquier otra app):
-hablas en un idioma y la otra persona te escucha en el idioma que elijas, con tu mismo
-tono/timbre de voz. Funciona **100% local y gratis** — sin APIs de pago, sin nube, todo
-corre en tu computadora — y se adapta solo al hardware que tengas (desde una laptop
-modesta hasta una notebook gamer con GPU).
+Traductor de voz **en vivo y en las dos direcciones**, con **clonación de tu propia voz**,
+para usar dentro de videollamadas (Zoom, Google Meet, Microsoft Teams, Discord, WhatsApp
+o cualquier otra app):
+
+- **Hablás en tu idioma y te escuchan en el de ellos**, con tu mismo tono/timbre de voz.
+  Automático: te escuchan en el idioma en que te hablan (empieza en inglés; si te hablan
+  en portugués, pasa al portugués solo), o en el que elijas.
+- **Lo que te dicen, en cualquier idioma** (con prioridad inglés y portugués), lo ves
+  escrito en español en la pantalla y lo escuchás traducido en tus auriculares, alrededor
+  de un segundo después de que la otra persona termina cada frase.
+
+Funciona **100% local y gratis** — sin APIs de pago, sin nube, todo corre en tu
+computadora — y se adapta solo al hardware que tengas (desde una notebook muy modesta
+hasta una notebook gamer con GPU). En Windows viene en **un solo `clonavoz.exe` para
+llevar en un pendrive**: la primera vez se instala solo en su carpeta, sin tocar la
+computadora ([ver](#versión-portable-windows-un-solo-exe-para-el-pendrive)).
 
 ## ⚠️ Expectativas realistas (leer antes de usar)
 
@@ -68,6 +78,69 @@ de audio virtual a nivel de sistema operativo. Cualquier app que pueda elegir un
 micrófono (Zoom, Meet, Teams, Discord, Skype, lo que sea) puede usarlo como entrada —
 por eso funciona con **todo lo que exista**, sin plugins específicos por app.
 
+## Lo que te dicen, traducido para vos (conversación en las dos direcciones)
+
+`clonavoz conversar` (opción **1** del menú de la versión portable) hace las dos cosas a
+la vez: tu voz traducida sale por el micrófono virtual, y lo que te dicen aparece
+traducido en la pantalla y suena en tus auriculares. `clonavoz escuchar` (opción **2**)
+solo traduce lo que te dicen: sirve también para videos, clases o reuniones donde no
+hablás.
+
+```
+lo que suena en la PC (la llamada) → VAD → en qué idioma te hablan (Whisper + palabras + la charla)
+   → Parakeet o Whisper (texto) → Opus-MT (traducción a tu idioma)
+   → en pantalla, y con una voz en tus auriculares
+```
+
+- **Sin instalar nada para escuchar la llamada.** En Windows se graba lo que suena en la
+  computadora (la voz de la otra persona sale de Zoom, Meet, Teams, WhatsApp o el
+  navegador), y desde Windows 10 versión 2004 se graba todo **menos lo que reproduce
+  clonavoz**: así no vuelve a escuchar su propia traducción. En Windows más viejos se graba
+  todo lo que suena y, mientras suena la traducción, no se escucha. En Linux y macOS hay
+  que elegir un dispositivo con el audio de la llamada (`--call-device`).
+- **Idioma automático, con prioridad inglés y portugués.** Whisper reconoce el idioma por
+  el sonido, las palabras más comunes de cada idioma lo confirman y se tiene en cuenta lo
+  que venían diciendo (en una llamada casi siempre se habla un solo idioma). En pruebas
+  con grabaciones reales en inglés, portugués y español: la primera frase se reconoció
+  bien el 96% de las veces y desde la segunda, el 99.6-100%. Si la otra persona cambia de
+  idioma y el sonido y las palabras coinciden, cambia en esa misma frase. Cualquier otro
+  idioma (francés, italiano, alemán...) también se reconoce si se nota claro.
+- **Si te hablan en tu idioma**, solo se muestra el texto (ya lo escuchaste).
+- **Te escuchan en su idioma.** Con `--target-lang auto` (lo que usa el menú), apenas
+  clonavoz reconoce que te hablan en otro idioma, tu siguiente frase ya sale en ese.
+- **La voz con que escuchás lo que te dicen** (opción **8** del menú, o `--their-voice`):
+  - `parecida` (por defecto): una voz de hombre o de mujer según el tono de cada frase de
+    quien habla. No es su voz; en una llamada de varios, cada uno suena distinto.
+  - `clonada`: su propia voz, clonada de lo que va diciendo. **Solo con su permiso**:
+    clonar la voz de alguien sin su consentimiento no está bien (y los creadores de la voz
+    natural lo prohíben). El menú te pregunta antes de cada conversación si la otra
+    persona te lo dio; si no, usa la parecida. Su voz suena solo en tus auriculares, nunca
+    se manda a la llamada, y no se guarda en ningún lado.
+  - `ninguna`: solo el texto en pantalla (subtítulos).
+- **Si usás parlantes**, mientras suena lo que te dijeron no se escucha tu micrófono (si
+  no, lo traduciría y lo mandaría a la llamada). Con auriculares no hace falta.
+
+Demora medida desde que la otra persona termina de hablar hasta que empieza a sonar la
+traducción: **1.3 y 1.5 s** en Windows real (una frase en inglés y otra en portugués, por
+el cable virtual; ver [Versión portable](#versión-portable-windows-un-solo-exe-para-el-pendrive)),
+0.6-1.4 s en una PC de 4 núcleos, y ~2-3 s en una notebook débil simulada (con Whisper
+`base`: entiende el inglés y el portugués mucho mejor que `tiny` —~11% de palabras mal
+contra ~28% en inglés, ~39% contra ~52% en portugués— y en esa notebook tarda lo mismo o
+menos, ~1.4 s por frase). La conversación completa (las dos direcciones) usa ~1.6 GB de
+memoria en esa notebook.
+
+## Portugués: rápido y de Brasil
+
+Para español ↔ portugués no hay un traductor Opus-MT propio: se traduce pasando por el
+inglés, con dos traductores chicos (español → inglés y un multilingüe inglés → idiomas
+romances). En FLORES (100 oraciones de prueba) salió **igual o mejor que NLLB-200**
+(chrF++ 52.4 contra 52.2 de español a portugués; 50.1 contra 50.8 al revés), **3 veces
+más rápido** y en portugués de Brasil ("Hola, ¿cómo estás? Te quería contar algo." →
+"Ei, como vai? Queria te dizer uma coisa."). Inglés ↔ portugués usa los multilingües
+directamente: igual que NLLB-200 y 5 veces más rápido. Además, cada frase se traduce de
+a una oración (en un mismo lote): con dos oraciones juntas, los traductores a veces se
+salteaban una.
+
 ## Traducción simultánea: la menor demora posible
 
 Con Parakeet (los 25 idiomas europeos que entiende, en PCs con al menos 6 GB de RAM),
@@ -122,7 +195,7 @@ propia muestra de voz, y en generar la traducción con tu voz) y se adapta sola:
 - **Si tu voz clonada no llega a generarse en vivo, usa la voz rápida**: una voz de tono
   parecido al tuyo (grave o aguda), sin clonar, unas 10 veces más rápida. Te avisa al
   arrancar, con los números de tu PC. Si preferís tu voz clonada igual, aunque la
-  traducción tarde más: opción **10** del menú de la versión portable ("Elegir la voz"),
+  traducción tarde más: opción **9** del menú de la versión portable ("Elegir mi voz"),
   o `--voice-engine natural`.
 - **Whisper con ventana corta** (en los idiomas sin Vosk): Whisper analiza siempre 30 s
   de audio, aunque digas una frase de 1 s. Para frases de hasta 7 s, clonavoz le da una
@@ -201,10 +274,10 @@ docker compose run --rm clonavoz devices
 En Windows/macOS, Docker Desktop no da acceso confiable al audio en tiempo real del
 host — en esos sistemas usa `setup.ps1`/`setup.sh` en lugar de Docker.
 
-La primera vez se descargan los modelos (Parakeet, Vosk y Whisper, los traductores
-Opus-MT y NLLB-200, el conversor de OpenVoice, la voz de Piper de cada idioma que uses y,
-si la elegís, la voz natural; con XTTS-v2, también ese modelo): unos 2.5 GB, varios GB
-más con XTTS-v2. Necesitas internet solo para esa
+La primera vez se descargan los modelos (`clonavoz download-models`, por defecto para
+español, inglés y portugués: Parakeet, Vosk y Whisper, los traductores Opus-MT y
+NLLB-200, el conversor de OpenVoice, las voces de Piper y, si la elegís, la voz natural;
+con XTTS-v2, también ese modelo): unos 2.7 GB, varios GB más con XTTS-v2. Necesitas internet solo para esa
 descarga inicial; después, todo funciona sin conexión.
 
 ### Instalación manual (alternativa a los scripts)
@@ -223,49 +296,65 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements-xtts.txt
 ```
 
-## Versión portable (Windows, sin instalar nada)
+## Versión portable (Windows): un solo .exe para el pendrive
 
 Para usarlo en cualquier computadora con Windows 10/11 de 64 bits, tuya o de otra
-persona, sin instalar Python ni nada: una carpeta que podés llevar en un pendrive. No
-necesita tarjeta gráfica.
+persona, sin instalar Python ni nada: **un solo archivo, `clonavoz.exe`**, que llevás en
+un pendrive. No necesita tarjeta gráfica.
 
-**Conseguirla** (~400 MB comprimida):
-- Ya armada: en GitHub, pestaña **Actions** del repositorio → "Versión portable
+**Conseguirlo** (~440 MB):
+- Ya armado: en GitHub, pestaña **Actions** del repositorio → "Versión portable
   (Windows)" → la última ejecución en verde → sección *Artifacts* →
-  `clonavoz-portable-windows-x64` (hay que tener la sesión iniciada en GitHub).
-- O armala vos en una PC con Windows y Python 3.10+: `python portable/build_windows.py --zip`
-  (queda en `dist\`).
+  `clonavoz-exe-windows-x64` (hay que tener la sesión iniciada en GitHub; viene dentro de
+  un .zip: sacá `clonavoz.exe` de ahí). También está la carpeta comprimida,
+  `clonavoz-portable-windows-x64`, por si preferís descomprimirla vos.
+- O armalo vos en una PC con Windows y Python 3.10+: `python portable/build_windows.py --exe`
+  (queda en `dist\clonavoz.exe`).
 
-**Usarla:** extraé el zip donde quieras (por ejemplo, en el pendrive) y hacé doble clic
-en `Iniciar.bat`. Aparece un menú:
-1. La primera vez: opción **6** para descargar los modelos (~2.5 GB, necesita internet una
-   sola vez; ahí te pide el token para la [voz natural](#voz-natural-recomendada), o Enter
-   para saltearla) y opción **2** para grabar tu voz.
-2. Opción **1** para usarlo en una videollamada (elegí "CABLE Output" como micrófono en la
-   app), u opción **4** para escuchar la traducción vos mismo en auriculares.
+**Usarlo:** copiá `clonavoz.exe` al pendrive y hacé doble clic. Si Windows avisa
+"Windows protegió su PC", tocá "Más información" → "Ejecutar de todas formas" (el
+programa no está firmado: es gratis y abierto). La primera vez todo es automático:
+1. Se instala en la carpeta `clonavoz`, al lado del .exe (en el pendrive: en la PC no se
+   instala nada).
+2. Baja los modelos (~2.7 GB, necesita internet una sola vez; ahí te pide el token para
+   la [voz natural](#voz-natural-recomendada), o Enter para saltearla).
+3. Te pide grabar 15 segundos de tu voz.
 
-Necesita ~3.5 GB libres en el pendrive o disco (programa ~1 GB + modelos ~2.5 GB) y al menos
-4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca bastante
-más rápido que desde uno USB 2.0.
+Después aparece el menú: opción **1** para una conversación en videollamada en las dos
+direcciones (en la app elegí "CABLE Output" como micrófono y usá auriculares), **2** para
+solo escuchar traducido lo que suena en la PC, **3** para solo traducir tu voz, **4** para
+escuchar tu traducción vos mismo. Las veces siguientes, el mismo doble clic abre el menú
+directamente; si bajás una versión nueva del .exe, actualiza el programa y conserva tu
+voz y los modelos.
+
+Necesita ~4 GB libres en el pendrive o disco (programa ~1.2 GB + modelos ~2.7 GB) y al
+menos 4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca
+bastante más rápido que desde uno USB 2.0.
 
 **Qué queda en la otra computadora: nada tuyo.** Tu muestra de voz, los modelos y los
 idiomas elegidos se guardan en la carpeta `datos` de la versión portable. Lo único que se
-instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (opción 7:
-necesita permisos de administrador y reiniciar). Si no podés instalarlo, usá la opción 4
-con auriculares. clonavoz además desactiva la telemetría de las librerías que la traen
+instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (opción 11:
+necesita permisos de administrador y reiniciar). Si no podés instalarlo, igual podés usar
+la opción 2 (escuchar traducido lo que te dicen) y la 4 (tu traducción en auriculares).
+clonavoz además desactiva la telemetría de las librerías que la traen
 activada (por ejemplo onnxruntime, que si no guardaría un identificador en esa PC). Cuidá
 la carpeta `datos` como cualquier dato personal: tiene tu voz grabada.
 
 **Probada con audio de verdad.** Cada cambio se prueba solo en una máquina Windows limpia
-de GitHub (4 núcleos, sin GPU): se arma la versión portable, se instala VB-CABLE y se le
-"habla" en español por un dispositivo de grabación de Windows, como si fuera tu micrófono.
-`test-audio`, `enroll` y `run` tienen que funcionar, y lo que llega a "CABLE Output" (lo
-que escucharía Zoom) tiene que ser la traducción en inglés y entenderse. En esa máquina la
-traducción empezó a sonar entre 1.5 y 2.2 segundos después de terminar cada frase (con la
-voz liviana, que genera la frase entera antes de que suene: ahí no se descarga la
-natural, que necesita tu token). Las
+de GitHub (4 núcleos, sin GPU): se arma `clonavoz.exe` y se instala como en un pendrive,
+se instala VB-CABLE y se le "habla" en español por un dispositivo de grabación de Windows,
+como si fuera tu micrófono. `test-audio`, `enroll` y `run` tienen que funcionar, y lo que
+llega a "CABLE Output" (lo que escucharía Zoom) tiene que ser la traducción en inglés y
+entenderse. En esa máquina la traducción empezó a sonar entre 1.5 y 1.7 segundos después
+de terminar cada frase (con la voz liviana, que genera la frase entera antes de que
+suene: ahí no se descarga la natural, que necesita tu token). Después, `escuchar`: alguien
+le habla en inglés y en portugués y la traducción al español tiene que verse y sonar (en
+esa máquina, 1.5 y 1.3 s después de que terminó de hablar). Las máquinas virtuales de
+GitHub no entregan lo que suena en la PC (ni con clonavoz ni con otras librerías que lo
+hacen): ahí la llamada se simula con el cable, y la parte de grabar lo que suena se
+prueba aparte (`portable/loopback_test.py`). Las
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
-máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 3 del
+máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 6 del
 menú).
 
 Para entender lo que decís se usa **Parakeet** (NVIDIA) si hablás uno de sus 25 idiomas
@@ -291,8 +380,8 @@ vez, gratis:
 1. Creá una cuenta en https://huggingface.co/join
 2. Entrá a https://huggingface.co/kyutai/pocket-tts y aceptá las condiciones.
 3. En https://huggingface.co/settings/tokens creá un token de tipo *Read*.
-4. Descargá los modelos pegando ese token cuando te lo pida: opción **6** del menú de la
-   versión portable, o `clonavoz download-models --languages es en --hf-token TU_TOKEN`.
+4. Descargá los modelos pegando ese token cuando te lo pida: opción **10** del menú de la
+   versión portable, o `clonavoz download-models --languages es en pt --hf-token TU_TOKEN`.
 
 El token se usa solo para esa descarga y no se guarda. Después funciona sin internet y
 se usa sola en los idiomas que tenga; en los demás sigue la voz liviana. Consejo: tu voz
@@ -344,7 +433,7 @@ dispositivo y clonavoz lo detecta igual.
 
 **Apps o páginas que no te dejan elegir el micrófono** (usan el predeterminado de Windows):
 poné "CABLE Output" como micrófono predeterminado en *Panel de control > Sonido > Grabar*
-(opción 9 del menú en la versión portable). clonavoz lo detecta y sigue escuchando tu
+(opción 13 del menú en la versión portable). clonavoz lo detecta y sigue escuchando tu
 micrófono real; si no lo encuentra, te avisa y te dice cómo elegirlo.
 
 Ojo: al instalar VB-CABLE, Windows a veces deja "CABLE Input" como altavoz
@@ -429,9 +518,29 @@ El micrófono virtual **no se mueve al mismo tiempo que tu voz**: se mueve cuand
 parte traducida está lista (`reproduciendo`), alrededor de un segundo después de decirla
 (en frases largas, mientras seguís hablando).
 
-Para el sentido contrario (que ellos te hablen en otro idioma y tú lo escuches en
-español), corre una segunda instancia con los idiomas invertidos, escuchando el audio
-de salida de la llamada como entrada y reproduciendo hacia tus audífonos.
+### 6. Conversación en las dos direcciones
+
+```bash
+clonavoz conversar --source-lang es --target-lang auto
+```
+
+Tu voz sale traducida por el micrófono virtual (con `auto`, en el idioma en que te
+hablen: empieza en inglés, `--start-lang` para cambiarlo) y lo que te dicen aparece en
+español en la pantalla y suena en tus auriculares:
+
+```
+  Te dicen (inglés) > Hi! I wanted to ask you about the meeting tomorrow.
+          es > Hola, quería preguntarte sobre la reunión de mañana.
+  Vos (es) > Claro, ¿a qué hora?
+          en > Sure, what time?
+[clonavoz] Te hablan en portugués: desde ahora te escuchan en portugués.
+```
+
+Opciones útiles: `--their-langs en pt` (los idiomas en que es más probable que te hablen),
+`--their-voice parecida|clonada|ninguna` (con `clonada`, solo con permiso de la otra
+persona: `--permiso-clonar` lo confirma), `--listen-lang` (en qué idioma escuchás lo que
+te dicen), `--headphones-device` y `--call-device`. Para solo escuchar traducido lo que
+suena en la PC, sin traducir tu voz: `clonavoz escuchar`.
 
 ## Perfiles de rendimiento
 
@@ -459,9 +568,11 @@ cambio de un poco más de demora.
 - Vosk y sus modelos chicos (`vosk-model-small-*`, de https://alphacephei.com/vosk/models):
   Apache-2.0.
 - NLLB-200: CC-BY-NC 4.0 (uso no comercial). Se usa una conversión a CTranslate2 del
-  mismo modelo, con la misma licencia; solo para los pares de idiomas sin Opus-MT.
+  mismo modelo, con la misma licencia; solo para los pares de idiomas sin Opus-MT (ni
+  pasando por el inglés), y se carga recién si hace falta.
 - OpenVoice V2 (conversor de timbre, incluido en `openvoice.py`): MIT.
-- Piper: MIT. Cada voz tiene su propia licencia: la mayoría de las elegidas son CC0,
+- Piper: MIT. Cada voz tiene su propia licencia (la de mujer para escuchar en español,
+  `es_MX-claude-high`, Apache-2.0): la mayoría de las elegidas son CC0,
   dominio público o CC-BY (permiten uso comercial). Las de turco, japonés, coreano,
   hindi, serbio y tailandés son de uso no comercial, y las de árabe, chino, hebreo,
   indonesio, suajili y las voces agudas de ruso y sueco no declaran una licencia clara
@@ -478,7 +589,13 @@ mencionadas); con XTTS-v2, también ese modelo.
 
 ## Limitaciones conocidas / roadmap
 
-- No hay interfaz gráfica todavía (solo línea de comandos).
+- No hay interfaz gráfica todavía (menú y línea de comandos).
+- Lo que te dicen se toma de todo lo que suena en la PC: si suena otra cosa (un video,
+  notificaciones), también se traduce. Cerrá lo que no uses durante la llamada.
+- La primera frase corta después de que la otra persona cambia de idioma a veces se
+  traduce como si siguiera en el anterior; desde la siguiente, bien.
+- Con `--their-voice clonada` en una llamada de varias personas, la voz clonada mezcla
+  las de todos: sirve mejor con una sola persona.
 - Parakeet detecta por su cuenta en qué idioma hablás (no se le puede indicar): en
   pedazos muy cortos a veces lo confunde (por ejemplo, español con portugués), y ese
   pedazo sale mal traducido.
