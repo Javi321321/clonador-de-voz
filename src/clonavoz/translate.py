@@ -1,27 +1,42 @@
 """Traducción de texto 100% local, con CTranslate2 en int8.
 
-Para los pares de idiomas que lo tienen (español-inglés y muchos otros), se usa
-Opus-MT (Universidad de Helsinki, licencia Apache-2.0): un traductor chico,
-de un par de idiomas, que en nuestras pruebas tradujo igual o mejor que
-NLLB-200 y 5 veces más rápido (~0.1 s por frase contra ~0.5 s), lo que cuenta
-mucho para traducir en vivo. Se convierte una sola vez al descargarlo.
+Siempre que se puede se usa Opus-MT (Universidad de Helsinki, licencia
+Apache-2.0): traductores chicos que en nuestras pruebas tradujeron igual que
+NLLB-200 y 3 a 5 veces más rápido, lo que cuenta mucho para traducir en vivo.
+Para cada par de idiomas se busca, en este orden:
 
-Para el resto, NLLB-200 (Meta), que cubre alrededor
-de 200 idiomas, ejecutado con CTranslate2 en int8: traduce igual y a la misma
-velocidad que PyTorch, pero usa ~0.6 GB de memoria en vez de ~5 GB, lo que
-lo hace viable en computadoras de bajos recursos. Usa GPU (CUDA) si hay una.
+- un traductor de ese par (ej. español -> inglés);
+- uno multilingüe: del inglés a los idiomas romances (portugués, francés,
+  italiano...) o de ellos al inglés;
+- dos pasando por el inglés: para español <-> portugués, que no tiene uno
+  propio. En nuestras pruebas (FLORES, 100 oraciones) tradujo igual o mejor
+  que NLLB-200 (chrF++ 52.4 contra 52.2 de español a portugués; 50.1 contra
+  50.8 al revés), 3 veces más rápido y en portugués de Brasil ("Ei, como vai?
+  Queria te dizer uma coisa.").
+
+Se descargan y convierten una sola vez (`download_opus`).
+
+Para el resto, NLLB-200 (Meta), que cubre alrededor de 200 idiomas, con
+CTranslate2 en int8: traduce igual y a la misma velocidad que PyTorch, pero
+usa ~0.6 GB de memoria en vez de ~5 GB. Usa GPU (CUDA) si hay una. Se carga
+recién cuando hace falta (un idioma sin Opus-MT) y una sola vez por proceso.
 
 El modelo ya convertido se descarga la primera vez desde Hugging Face (con
 una revisión fija). Si esa descarga no está disponible, se convierte el
 modelo original una sola vez (eso sí necesita varios GB de RAM y unos
-minutos). El modelo se carga una sola vez por proceso y se reutiliza para
-todas las traducciones, aunque cambien los pares de idiomas.
+minutos).
+
+Las frases se traducen de a una oración (todas juntas, en un mismo lote): con
+dos oraciones seguidas, estos traductores a veces se salteaban una ("Hola,
+¿cómo estás? Te quería contar algo." salía "Olá, como estás?").
 """
 from __future__ import annotations
 
 import gc
+import re
 import shutil
 import tempfile
+import threading
 import warnings
 
 # En Windows, torch y ctranslate2 traen cada uno su copia de libiomp5md.dll
@@ -65,36 +80,102 @@ def download() -> None:
     _converted_model_dir()
 
 
-_OPUS_REPO = "Helsinki-NLP/opus-mt-{}-{}"
+# Fin de oración: después de . ! ? o …, antes de una mayúscula (o un número,
+# o signos de apertura como ¿ ¡ « ").
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+(?=[¿¡\"'«(]?[A-ZÁÉÍÓÚÑÂÊÎÔÛÃÕÇÀÈÌÒÙÄËÏÖÜ0-9])")
+
+
+def split_sentences(text: str) -> list[str]:
+    return [part for part in _SENTENCE_END.split(text.strip()) if part]
+
+
+_OPUS_REPO = "Helsinki-NLP/opus-mt-{}"
 _OPUS_TOKENIZER_FILES = ("source.spm", "target.spm", "vocab.json", "tokenizer_config.json")
+# Los multilingües: "ROMANCE-en" traduce de estos idiomas al inglés y
+# "en-ROMANCE" del inglés a ellos (con el idioma destino al principio, como
+# ">>pt_br<<": el portugués sale de Brasil, que es el más probable al hablar
+# con alguien de Sudamérica).
+_ROMANCE = {"es", "pt", "fr", "it", "ro", "ca", "gl"}
+_ROMANCE_TOKENS = {"pt": ">>pt_br<<"}
 
 
-def _opus_dir(source: str, target: str):
-    return data_dir() / "modelos" / f"opus-mt-{source}-{target}"
+def _routes(source: str, target: str) -> list[list[tuple[str, str]]]:
+    """Formas de traducir de `source` a `target` con Opus-MT, de mejor a peor.
+    Cada una es una lista de pasos (modelo, prefijo): uno, o dos pasando por
+    el inglés."""
+    direct = [[(f"{source}-{target}", "")]]
+    if target == "en" and source in _ROMANCE:
+        direct.append([("ROMANCE-en", "")])
+    if source == "en" and target in _ROMANCE:
+        direct.append([("en-ROMANCE", _ROMANCE_TOKENS.get(target, f">>{target}<<") + " ")])
+    if "en" in (source, target):
+        return direct
+    return direct + [first + second for first in _routes(source, "en") for second in _routes("en", target)]
+
+
+def _opus_dir(name: str):
+    return data_dir() / "modelos" / f"opus-mt-{name}"
+
+
+def opus_model_ready(name: str) -> bool:
+    return (_opus_dir(name) / "model.bin").exists()
+
+
+def opus_route(source: str, target: str) -> list[tuple[str, str]] | None:
+    """Los pasos de Opus-MT ya descargados para ese par, o None (se usa NLLB-200)."""
+    for route in _routes(source, target):
+        if all(opus_model_ready(name) for name, _ in route):
+            return route
+    return None
 
 
 def opus_ready(source: str, target: str) -> bool:
-    return (_opus_dir(source, target) / "model.bin").exists()
+    return opus_route(source, target) is not None
 
 
-def download_opus(source: str, target: str) -> bool:
-    """Descarga y convierte (una vez) el traductor rápido de ese par de idiomas.
-    False si no existe para ese par (se usa NLLB-200)."""
-    if opus_ready(source, target):
+_exists: dict[str, bool] = {}
+
+
+def _opus_exists(name: str) -> bool:
+    """Si ese Opus-MT existe en Hugging Face (usa internet; ya descargado: True)."""
+    if opus_model_ready(name):
         return True
-    from huggingface_hub import model_info, snapshot_download
-    from huggingface_hub.utils import RepositoryNotFoundError
+    if name not in _exists:
+        from huggingface_hub import model_info
+        from huggingface_hub.utils import RepositoryNotFoundError
 
-    repo = _OPUS_REPO.format(source, target)
-    try:
-        files = {sibling.rfilename for sibling in model_info(repo).siblings}
-    except RepositoryNotFoundError:
-        return False
+        try:
+            model_info(_OPUS_REPO.format(name))
+            _exists[name] = True
+        except RepositoryNotFoundError:
+            _exists[name] = False
+    return _exists[name]
+
+
+def download_opus(source: str, target: str) -> list[str] | None:
+    """Descarga y convierte (una vez) los traductores rápidos para ese par de
+    idiomas. Devuelve sus nombres (ej. ["es-en", "en-ROMANCE"], si pasa por el
+    inglés), o None si no hay (se usa NLLB-200)."""
+    for route in _routes(source, target):
+        if all(_opus_exists(name) for name, _ in route):
+            for name, _ in route:
+                _download_opus_model(name)
+            return [name for name, _ in route]
+    return None
+
+
+def _download_opus_model(name: str) -> None:
+    if opus_model_ready(name):
+        return
+    from huggingface_hub import model_info, snapshot_download
+
+    repo = _OPUS_REPO.format(name)
+    files = {sibling.rfilename for sibling in model_info(repo).siblings}
     # Solo lo necesario para convertirlo (el repositorio trae también los pesos
     # para TensorFlow y Rust), en una carpeta temporal: después no hace falta.
     weights = "model.safetensors" if "model.safetensors" in files else "pytorch_model.bin"
-    tokenizer_files = [name for name in _OPUS_TOKENIZER_FILES if name in files]
-    folder = _opus_dir(source, target)
+    tokenizer_files = [file for file in _OPUS_TOKENIZER_FILES if file in files]
+    folder = _opus_dir(name)
     folder.parent.mkdir(parents=True, exist_ok=True)
     for leftover in folder.parent.glob(".descarga-*"):  # de una descarga que se cortó
         shutil.rmtree(leftover, ignore_errors=True)
@@ -107,7 +188,7 @@ def download_opus(source: str, target: str) -> bool:
         )
         converter = ctranslate2.converters.TransformersConverter(tmp, copy_files=tokenizer_files)
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*sacremoses")  # ver _OpusTranslator
+            warnings.filterwarnings("ignore", message=".*sacremoses")  # ver _OpusModel
             converter.convert(str(folder), quantization="int8", force=True)
     finally:
         transformers_logging.set_verbosity(verbosity)
@@ -115,14 +196,16 @@ def download_opus(source: str, target: str) -> bool:
         # primero se libera el modelo original que se usó para convertir.
         gc.collect()
         shutil.rmtree(tmp, ignore_errors=True)
-    return True
 
 
-class _OpusTranslator:
-    def __init__(self, source: str, target: str, device: str) -> None:
+class _OpusModel:
+    """Un Opus-MT cargado. Se comparte entre traductores (ej. el de español a
+    inglés sirve también para pasar del español al portugués)."""
+
+    def __init__(self, name: str, device: str) -> None:
         from transformers import MarianTokenizer
 
-        folder = str(_opus_dir(source, target))
+        folder = str(_opus_dir(name))
         with warnings.catch_warnings():
             # Sin el paquete sacremoses (normaliza comillas y guiones raros, que
             # el reconocimiento de voz no produce), transformers avisa
@@ -133,28 +216,46 @@ class _OpusTranslator:
             folder, device=device, compute_type="int8_float16" if device == "cuda" else "int8", intra_threads=2
         )
 
-    def translate(self, text: str) -> str:
-        tokens = self._tokenizer.convert_ids_to_tokens(self._tokenizer.encode(text))
-        result = self._model.translate_batch(
-            [tokens],
+    def translate(self, sentences: list[str], prefix: str = "") -> list[str]:
+        batch = [self._tokenizer.convert_ids_to_tokens(self._tokenizer.encode(prefix + text)) for text in sentences]
+        results = self._model.translate_batch(
+            batch,
             beam_size=1,
             # Si algo sale mal (por ejemplo, llega un texto mal reconocido), que no
             # diga una tira de letras repetidas: sin repetir 4 pedazos seguidos y
             # no mucho más largo que el original.
             no_repeat_ngram_size=4,
-            max_decoding_length=min(256, 2 * len(tokens) + 8),
+            max_decoding_length=min(256, 2 * max(len(tokens) for tokens in batch) + 8),
         )
-        ids = self._tokenizer.convert_tokens_to_ids(result[0].hypotheses[0])
-        return self._tokenizer.decode(ids, skip_special_tokens=True).strip()
+        tokenizer = self._tokenizer
+        return [
+            tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0]), skip_special_tokens=True).strip()
+            for result in results
+        ]
+
+
+_opus_models: dict[tuple[str, str], _OpusModel] = {}
+_opus_lock = threading.Lock()
+
+
+def _opus_model(name: str, device: str) -> _OpusModel:
+    with _opus_lock:
+        if (name, device) not in _opus_models:
+            _opus_models[(name, device)] = _OpusModel(name, device)
+        return _opus_models[(name, device)]
+
+
+_nllb_lock = threading.Lock()  # el tokenizador se configura para cada idioma de origen
 
 
 def _load_model(device: str) -> None:
     global _model, _tokenizer
-    if _model is not None:
-        return
-    _tokenizer = AutoTokenizer.from_pretrained(_ORIGINAL_MODEL, revision=_ORIGINAL_REVISION)
-    compute_type = "int8_float16" if device == "cuda" else "int8"
-    _model = ctranslate2.Translator(_converted_model_dir(), device=device, compute_type=compute_type)
+    with _nllb_lock:
+        if _model is not None:
+            return
+        _tokenizer = AutoTokenizer.from_pretrained(_ORIGINAL_MODEL, revision=_ORIGINAL_REVISION)
+        compute_type = "int8_float16" if device == "cuda" else "int8"
+        _model = ctranslate2.Translator(_converted_model_dir(), device=device, compute_type=compute_type)
 
 
 class Translator:
@@ -167,23 +268,33 @@ class Translator:
         self.from_code = from_nllb_code
         self.to_code = to_nllb_code
         self.device = "cuda" if device == "cuda" else "cpu"
-        self._opus = None
-        if pair is not None and opus_ready(*pair):
-            self._opus = _OpusTranslator(*pair, self.device)
-            self.name = f"Opus-MT ({pair[0]} -> {pair[1]})"
+        self._steps: list[tuple[_OpusModel, str]] = []
+        route = opus_route(*pair) if pair is not None and pair[0] != pair[1] else None
+        if route is not None:
+            self._steps = [(_opus_model(name, self.device), prefix) for name, prefix in route]
+            languages = [pair[0], *("en" for _ in route[1:]), pair[1]]
+            self.name = f"Opus-MT ({' -> '.join(languages)})"
             return
         self.name = "NLLB-200"
         _load_model(self.device)
 
     def translate(self, text: str) -> str:
-        if not text.strip():
+        sentences = split_sentences(text)
+        if not sentences:
             return ""
-        if self._opus is not None:
-            return self._opus.translate(text)
-        _tokenizer.src_lang = self.from_code
-        tokens = _tokenizer.convert_ids_to_tokens(_tokenizer.encode(text))
-        result = _model.translate_batch(
-            [tokens], target_prefix=[[self.to_code]], beam_size=1, max_decoding_length=256
+        for model, prefix in self._steps:
+            sentences = model.translate(sentences, prefix)
+        if not self._steps:
+            sentences = self._nllb(sentences)
+        return " ".join(sentence for sentence in sentences if sentence)
+
+    def _nllb(self, sentences: list[str]) -> list[str]:
+        with _nllb_lock:
+            _tokenizer.src_lang = self.from_code
+            batch = [_tokenizer.convert_ids_to_tokens(_tokenizer.encode(text)) for text in sentences]
+        results = _model.translate_batch(
+            batch, target_prefix=[[self.to_code]] * len(batch), beam_size=1, max_decoding_length=256
         )
-        output_ids = _tokenizer.convert_tokens_to_ids(result[0].hypotheses[0][1:])
-        return _tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+        # (cada resultado empieza con el código del idioma destino)
+        ids = [_tokenizer.convert_tokens_to_ids(result.hypotheses[0][1:]) for result in results]
+        return [_tokenizer.decode(sentence, skip_special_tokens=True).strip() for sentence in ids]

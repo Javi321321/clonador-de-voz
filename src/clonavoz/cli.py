@@ -116,12 +116,14 @@ def _cmd_download_models(args: argparse.Namespace) -> None:
             if source.code != target.code:
                 print(f"Traductor rápido Opus-MT ({source.code} -> {target.code})...")
                 try:
-                    available = translate.download_opus(source.code, target.code)
+                    models = translate.download_opus(source.code, target.code)
                 except Exception as exc:  # noqa: BLE001 - es opcional: sin él se usa NLLB-200
                     print(f"  (no se pudo: {exc}. Se usa NLLB-200, más lento)")
                     continue
-                if not available:
+                if not models:
                     print("  (no existe para ese par: se usa NLLB-200)")
+                elif len(models) > 1:
+                    print("  (pasando por el inglés)")
     print("Conversor de timbre (OpenVoice V2)...")
     openvoice.ToneColorConverter.from_pretrained()
     for lang in languages:
