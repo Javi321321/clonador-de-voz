@@ -121,8 +121,8 @@ lo que suena en la PC (la llamada) → VAD → en qué idioma te hablan (Whisper
   no, lo traduciría y lo mandaría a la llamada). Con auriculares no hace falta.
 
 Demora medida desde que la otra persona termina de hablar hasta que empieza a sonar la
-traducción: **1.3 y 1.5 s** en Windows real (una frase en inglés y otra en portugués, por
-el cable virtual; ver [Versión portable](#versión-portable-windows-un-solo-exe-para-el-pendrive)),
+traducción: **1.3 a 1.9 s** en Windows real (frases en inglés y en portugués por el cable
+virtual, en varias corridas; ver [Versión portable](#versión-portable-windows-un-solo-exe-para-el-pendrive)),
 0.6-1.4 s en una PC de 4 núcleos, y ~3 s (2.6 a 3.6 s) en una notebook débil simulada (con Whisper
 `base`: entiende el inglés y el portugués mucho mejor que `tiny` —~11% de palabras mal
 contra ~28% en inglés, ~39% contra ~52% en portugués— y en esa notebook tarda lo mismo o
@@ -345,11 +345,12 @@ de GitHub (4 núcleos, sin GPU): se arma `clonavoz.exe` y se instala como en un 
 se instala VB-CABLE y se le "habla" en español por un dispositivo de grabación de Windows,
 como si fuera tu micrófono. `test-audio`, `enroll` y `run` tienen que funcionar, y lo que
 llega a "CABLE Output" (lo que escucharía Zoom) tiene que ser la traducción en inglés y
-entenderse. En esa máquina la traducción empezó a sonar entre 1.5 y 1.7 segundos después
+entenderse. En esa máquina la traducción empezó a sonar entre 1.5 y 2.3 segundos después
 de terminar cada frase (con la voz liviana, que genera la frase entera antes de que
 suene: ahí no se descarga la natural, que necesita tu token). Después, `escuchar`: alguien
 le habla en inglés y en portugués y la traducción al español tiene que verse y sonar (en
-esa máquina, 1.5 y 1.3 s después de que terminó de hablar). Las máquinas virtuales de
+esa máquina, entre 1.3 y 1.9 s después de que terminó de hablar); y `conversar` tiene que
+arrancar con las dos direcciones a la vez. Las máquinas virtuales de
 GitHub no entregan lo que suena en la PC (ni con clonavoz ni con otras librerías que lo
 hacen): ahí la llamada se simula con el cable, y la parte de grabar lo que suena se
 prueba aparte (`portable/loopback_test.py`). Las
