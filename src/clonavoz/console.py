@@ -5,12 +5,18 @@ ejemplo, redirigida a un archivo), la línea de estado no se dibuja.
 
 Solo usa caracteres ASCII y "\\r" (nada de códigos ANSI), para que se vea
 bien también en la consola clásica de Windows.
+
+La ventana de clonavoz (clonavoz.exe) lee la salida por un pipe: con
+CLONAVOZ_ESTADO=1, la línea de estado sale como líneas "@@ ..." (unas pocas
+por segundo), que la ventana muestra abajo en vez de mezclarlas con el resto.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import threading
+import time
 
 METER_FLOOR_DB = -60.0
 
@@ -26,10 +32,18 @@ class StatusLine:
         self._stream = stream or sys.stdout
         isatty = getattr(self._stream, "isatty", None)
         self.enabled = bool(isatty and isatty())
+        self._lines = not self.enabled and os.environ.get("CLONAVOZ_ESTADO") == "1"
+        self._last_line = 0.0
         self._lock = threading.Lock()
         self._text = ""
 
     def update(self, text: str) -> None:
+        if self._lines:
+            now = time.monotonic()
+            if now - self._last_line >= 0.2:
+                self._last_line = now
+                self._write_line(text)
+            return
         if not self.enabled:
             return
         text = text[: shutil.get_terminal_size((80, 20)).columns - 1]
@@ -48,7 +62,15 @@ class StatusLine:
                 self._stream.write(self._text)
             self._stream.flush()
 
+    def _write_line(self, text: str) -> None:
+        with self._lock:
+            self._stream.write(f"@@ {text}\n")
+            self._stream.flush()
+
     def clear(self) -> None:
+        if self._lines:
+            self._write_line("")
+            return
         with self._lock:
             if self._text:
                 self._stream.write("\r" + " " * len(self._text) + "\r")

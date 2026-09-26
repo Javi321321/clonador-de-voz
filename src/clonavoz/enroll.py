@@ -27,7 +27,7 @@ from .console import StatusLine, format_meter
 SAVE_RATE = 24000
 
 
-def record_voice_sample(output_path: Path, seconds: float, input_device: int | None) -> None:
+def record_voice_sample(output_path: Path, seconds: float, input_device: int | str | None) -> None:
     device, notes = resolve_input_device(input_device)
     for note in notes:
         print(note)

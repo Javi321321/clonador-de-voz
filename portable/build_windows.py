@@ -16,8 +16,9 @@ Uso (desde la raíz del repositorio, con Python 3.10+ y pip):
 
 `--exe` arma un solo archivo, clonavoz.exe, con todo adentro: se lleva en el
 pendrive y la primera vez que se abre se instala en la carpeta "clonavoz" al
-lado (ver launcher/clonavoz.cs). Se compila con el compilador de C# que trae
-Windows (.NET Framework 4), o con `mcs` (Mono) en Linux o macOS.
+lado, y después abre la ventana con el botón ACTIVAR (ver launcher/clonavoz.cs).
+Se compila con el compilador de C# que trae Windows (.NET Framework 4), o con
+`mcs` (Mono) en Linux o macOS.
 
 Se puede correr en Linux o macOS para armar el paquete desde otro sistema
 (se bajan los paquetes de Windows directamente), pero las DLLs de Visual C++
@@ -49,6 +50,7 @@ VC_RUNTIME_DLLS = [
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHERS = Path(__file__).resolve().parent / "windows"
+WINDOW_NAME = "Abrir clonavoz.exe"  # la ventana, adentro de la carpeta portable
 # El micrófono virtual VB-CABLE (VB-Audio Software, www.vb-cable.com), tal cual:
 # su licencia permite copiar y distribuir el paquete sin modificarlo, pero no
 # meterlo en el instalador de otro programa. Por eso va adentro sin tocarlo y
@@ -152,33 +154,48 @@ def _version() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + (f"-{commit}" if commit else "")
 
 
-def _compile_launcher(out: Path, version: str) -> Path:
-    """Compila launcher/clonavoz.cs con la versión adentro."""
-    source = (Path(__file__).resolve().parent / "launcher" / "clonavoz.cs").read_text(encoding="utf-8")
+def _compile_launcher(out: Path, version: str, required: bool = True) -> Path | None:
+    """Compila la ventana de clonavoz (launcher/clonavoz.cs, con la versión
+    adentro, y windows/AudioDefaults.cs) en `out/launcher/clonavoz.exe`. Sin
+    compilador de C#: error si `required`, si no, avisa y devuelve None."""
+    here = Path(__file__).resolve().parent
     work = out / "launcher"
     work.mkdir(parents=True, exist_ok=True)
-    cs = work / "clonavoz.cs"
-    cs.write_text(source.replace("__VERSION__", version), encoding="utf-8")
+    sources = []
+    for source in (here / "launcher" / "clonavoz.cs", LAUNCHERS / "AudioDefaults.cs"):
+        text = source.read_text(encoding="utf-8-sig").replace("__VERSION__", version)
+        copy = work / source.name
+        copy.write_text(text, encoding="utf-8-sig")  # con BOM: así el compilador lee bien las tildes
+        sources.append(str(copy))
     exe = work / "clonavoz.exe"
-    references = ["System.IO.Compression.dll", "System.IO.Compression.FileSystem.dll"]
+    references = [
+        "System.Windows.Forms.dll", "System.Drawing.dll", "System.IO.Compression.dll",
+        "System.IO.Compression.FileSystem.dll",
+    ]
     windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
     frameworks = windir / "Microsoft.NET"
     candidates = [frameworks / folder / "v4.0.30319" / "csc.exe" for folder in ("Framework64", "Framework")]
     csc = next((path for path in candidates if path.exists()), None)
     if csc is not None:
-        _run([str(csc), "/nologo", "/optimize+", f"/out:{exe}", *(f"/r:{r}" for r in references), str(cs)])
+        _run([str(csc), "/nologo", "/optimize+", "/target:winexe", f"/out:{exe}",
+              *(f"/r:{r}" for r in references), *sources])
     elif shutil.which("mcs"):
-        _run(["mcs", "-nologo", "-optimize+", f"-out:{exe}", *(f"-r:{r}" for r in references), str(cs)])
+        # C# 5, lo mismo que entiende el compilador que trae Windows
+        _run(["mcs", "-nologo", "-optimize+", "-langversion:5", "-target:winexe", f"-out:{exe}",
+              *(f"-r:{r}" for r in references), *sources])
     else:
-        sys.exit("--exe necesita el compilador de C#: el de Windows (.NET Framework 4) o `mcs` (Mono).")
+        message = "hace falta el compilador de C#: el de Windows (.NET Framework 4) o `mcs` (Mono)."
+        if required:
+            sys.exit("--exe " + message)
+        print("AVISO: la carpeta queda sin la ventana (Abrir clonavoz.exe): " + message)
+        return None
     return exe
 
 
-def _build_exe(target: Path, out: Path) -> Path:
-    """clonavoz.exe: el lanzador con toda la carpeta portable adentro (un .zip
+def _build_exe(target: Path, out: Path, version: str) -> Path:
+    """clonavoz.exe: la ventana con toda la carpeta portable adentro (un .zip
     pegado al final, con las posiciones contadas desde el principio del .exe,
     como lo lee .NET)."""
-    version = _version()
     launcher = _compile_launcher(out, version)
     exe = out / "clonavoz.exe"
     shutil.copy2(launcher, exe)
@@ -202,7 +219,15 @@ def main() -> None:
     parser.add_argument(
         "--exe", action="store_true", help="Armar también clonavoz.exe: un solo archivo con todo, para el pendrive"
     )
+    parser.add_argument(
+        "--solo-ventana", action="store_true",
+        help="Solo compilar la ventana (OUT/launcher/clonavoz.exe, sin el programa adentro), para probarla con "
+        "una carpeta ya armada: clonavoz.exe --carpeta OUT/clonavoz-portable",
+    )
     args = parser.parse_args()
+    if args.solo_ventana:
+        print(f"Listo: {_compile_launcher(Path(args.out), _version())}")
+        return
 
     target = Path(args.out) / "clonavoz-portable"
     if target.exists():
@@ -222,6 +247,11 @@ def main() -> None:
     for launcher in LAUNCHERS.iterdir():
         shutil.copy2(launcher, target / launcher.name)
     _include_vbcable(target)
+    # La ventana con el botón ACTIVAR, también en la carpeta (para quien usa el .zip).
+    version = _version()
+    window = _compile_launcher(Path(args.out), version, required=False)
+    if window is not None:
+        shutil.copy2(window, target / WINDOW_NAME)
     datos = target / "datos"
     datos.mkdir(exist_ok=True)
     (datos / "NO_BORRAR.txt").write_text(
@@ -242,7 +272,7 @@ def main() -> None:
     else:
         print(f"Listo: {target}")
     if args.exe:
-        _build_exe(target, Path(args.out))
+        _build_exe(target, Path(args.out), version)
 
 
 if __name__ == "__main__":

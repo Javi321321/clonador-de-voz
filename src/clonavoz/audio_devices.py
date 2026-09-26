@@ -178,13 +178,54 @@ def _find_real_microphone(hostapi: int) -> AudioDevice | None:
     return None
 
 
-def resolve_input_device(requested: int | None) -> tuple[int | None, list[str]]:
+def _same_name(device_name: str, wanted: str) -> bool:
+    """Si `device_name` es el dispositivo llamado `wanted`. Con MME, Windows
+    corta los nombres a 31 letras ("Micrófono (Intel® Smart Sound Te"): vale
+    también si el nombre cortado es el principio del completo."""
+    name = device_name.strip().casefold()
+    return name == wanted or (len(name) >= 28 and wanted.startswith(name))
+
+
+def find_input_by_name(name: str) -> AudioDevice | None:
+    """El micrófono llamado `name`, como lo muestra Windows (ej. "Micrófono
+    (Realtek(R) Audio)"), o que tiene `name` en su nombre (ej. "realtek").
+    Cada dispositivo aparece una vez por API de audio: se prefiere la del
+    micrófono predeterminado (MME en Windows), como cuando no se elige ninguno."""
+    wanted = name.strip().casefold()
+    if not wanted:
+        return None
+    inputs = [dev for dev in list_devices() if dev.max_input_channels > 0]
+    try:
+        default_api = sd.query_devices(kind="input")["hostapi"]
+    except (ValueError, sd.PortAudioError):
+        default_api = 0
+    for matches in (
+        [dev for dev in inputs if _same_name(dev.name, wanted)],
+        [dev for dev in inputs if wanted in dev.name.casefold()],
+    ):
+        if matches:
+            return ([dev for dev in matches if dev.hostapi == default_api] or matches)[0]
+    return None
+
+
+def resolve_input_device(requested: int | str | None) -> tuple[int | None, list[str]]:
     """Decide de qué micrófono escuchar. Devuelve el índice y una lista de
     avisos para mostrarle al usuario.
 
-    Sin `--input-device` se usa el micrófono predeterminado del sistema,
-    salvo que ese predeterminado sea un cable virtual: en ese caso se busca
-    un micrófono real en su lugar."""
+    `requested` es el número del dispositivo (ver `clonavoz devices`) o su
+    nombre. Sin `--input-device` se usa el micrófono predeterminado del
+    sistema, salvo que ese predeterminado sea un cable virtual: en ese caso
+    se busca un micrófono real en su lugar."""
+    if isinstance(requested, str):
+        found = find_input_by_name(requested)
+        if found is None:
+            index, notes = resolve_input_device(None)
+            return index, [
+                f"Aviso: no se encontró el micrófono '{requested}' (ver `clonavoz devices`): se usa el "
+                "predeterminado.",
+                *notes,
+            ]
+        requested = found.index
     if requested is not None:
         try:
             dev = sd.query_devices(requested, "input")

@@ -51,6 +51,23 @@ def test_explicit_real_microphone_has_no_warnings():
     assert resolve_input_device(11) == (11, [])
 
 
+def test_microphone_by_its_windows_name():
+    # La ventana de clonavoz pasa el nombre que muestra Windows; con MME viene
+    # cortado a 31 letras, y el mismo micrófono aparece en cada API.
+    fake_sounddevice.windows_with_vb_cable(default_input=1)
+    assert resolve_input_device("Micrófono (Realtek(R) Audio)") == (2, [])
+    assert resolve_input_device("realtek") == (2, [])  # una parte, escrita a mano
+    index, notes = resolve_input_device("CABLE Output (VB-Audio Virtual Cable)")
+    assert index == 1 and "micrófono virtual" in notes[0]  # el de MME, aunque su nombre está cortado
+
+
+def test_microphone_name_that_is_not_there_falls_back_to_a_real_one():
+    fake_sounddevice.windows_with_vb_cable(default_input=1)
+    index, notes = resolve_input_device("Micrófono (USB Audio)")
+    assert index == 2
+    assert "no se encontró el micrófono 'Micrófono (USB Audio)'" in notes[0]
+
+
 def test_virtual_default_without_real_microphone_warns_and_keeps_default():
     d = fake_sounddevice.device
     fake_sounddevice.configure(

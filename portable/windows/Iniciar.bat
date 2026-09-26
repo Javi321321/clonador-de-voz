@@ -19,6 +19,9 @@ if exist "datos\su_voz.txt" for /f "usebackq tokens=1" %%a in ("datos\su_voz.txt
 if not defined ESCUCHO set "ESCUCHO=%ORIGEN%"
 if not defined DESTINO set "DESTINO=auto"
 call :ver_cable
+rem Si la ventana (clonavoz.exe) se cerro de golpe mientras traducia, vuelve a
+rem poner tu microfono de siempre como predeterminado.
+if exist "datos\microfono_anterior.txt" powershell -NoProfile -ExecutionPolicy Bypass -File "%AQUI%vbcable.ps1" -Restaurar >nul 2>&1
 
 rem La primera vez, todo solo: se bajan los modelos y se graba tu voz.
 if not exist "datos\modelos_listos.txt" if not defined CLONAVOZ_SIN_DESCARGA goto primera_vez

@@ -4,8 +4,8 @@
 # el cable virtual VB-CABLE oficial. (Una segunda copia no sirve: Windows la
 # crea pero no arranca, CM_PROB_FAILED_START.)
 #
-# En tu computadora VB-CABLE se instala con su instalador normal (ver
-# LEEME.txt): clonavoz no lo incluye ni lo instala.
+# En tu computadora VB-CABLE se instala con su instalador oficial, que viene
+# incluido en clonavoz (botón ACTIVAR, u opción 11 del menú; ver LEEME.txt).
 $ErrorActionPreference = "Stop"
 
 Write-Host "== Servicio de audio de Windows =="

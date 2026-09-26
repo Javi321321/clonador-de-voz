@@ -15,7 +15,8 @@ Funciona **100% local y gratis** — sin APIs de pago, sin nube, todo corre en t
 computadora — y se adapta solo al hardware que tengas (desde una notebook muy modesta
 hasta una notebook gamer con GPU). En Windows viene en **un solo `clonavoz.exe` para
 llevar en un pendrive**: la primera vez se instala solo en su carpeta, sin tocar la
-computadora ([ver](#versión-portable-windows-un-solo-exe-para-el-pendrive)).
+computadora, y abre una ventana con un botón **ACTIVAR** que hace solo todo lo que se
+puede hacer solo ([ver](#versión-portable-windows-un-solo-exe-para-el-pendrive)).
 
 ## ⚠️ Expectativas realistas (leer antes de usar)
 
@@ -80,11 +81,12 @@ por eso funciona con **todo lo que exista**, sin plugins específicos por app.
 
 ## Lo que te dicen, traducido para vos (conversación en las dos direcciones)
 
-`clonavoz conversar` (opción **1** del menú de la versión portable) hace las dos cosas a
-la vez: tu voz traducida sale por el micrófono virtual, y lo que te dicen aparece
-traducido en la pantalla y suena en tus auriculares. `clonavoz escuchar` (opción **2**)
-solo traduce lo que te dicen: sirve también para videos, clases o reuniones donde no
-hablás.
+`clonavoz conversar` (el botón **ACTIVAR** de la versión portable, u opción **1** de su
+menú) hace las dos cosas a la vez: tu voz traducida sale por el micrófono virtual, y lo
+que te dicen aparece traducido en la pantalla y suena en tus auriculares. `clonavoz
+escuchar` (opción **2**) solo traduce lo que te dicen: sirve también para videos, clases o
+reuniones donde no hablás. Si la PC no tiene auriculares ni parlantes (solo el cable
+virtual), lo que te dicen se muestra solo en pantalla.
 
 ```
 lo que suena en la PC (la llamada) → VAD → en qué idioma te hablan (Whisper + palabras + la charla)
@@ -313,26 +315,37 @@ un pendrive. No necesita tarjeta gráfica.
 
 **Usarlo:** copiá `clonavoz.exe` al pendrive y hacé doble clic. Si Windows avisa
 "Windows protegió su PC", tocá "Más información" → "Ejecutar de todas formas" (el
-programa no está firmado: es gratis y abierto). La primera vez todo es automático:
-1. Se instala en la carpeta `clonavoz`, al lado del .exe (en el pendrive: en la PC no se
-   instala nada).
-2. Baja los modelos (~2.7 GB, necesita internet una sola vez; ahí te pide el token para
-   la [voz natural](#voz-natural-recomendada), o Enter para saltearla).
-3. Te pide grabar 15 segundos de tu voz.
-4. Te ofrece instalar el micrófono virtual **VB-CABLE** en esa PC: viene incluido en el
-   `.exe` (sin internet), pero es un driver de Windows y no puede funcionar desde el
-   pendrive: se instala una vez por PC, con su instalador oficial y permiso de
+programa no está firmado: es gratis y abierto). La primera vez se instala solo en la
+carpeta `clonavoz`, al lado del .exe (en el pendrive: en la PC no se instala nada), y se
+abre la ventana de clonavoz. Tocá **ACTIVAR**: hace solo todo lo que se puede hacer solo, y
+te pregunta solo lo que tenés que decidir vos:
+
+1. La primera vez baja los modelos (~2.7 GB, necesita internet una sola vez; ahí podés
+   pegar el token para la [voz natural](#voz-natural-recomendada), o seguir sin él).
+2. Si falta tu voz, la graba: 15 segundos leyendo en voz alta un texto que aparece en la
+   ventana.
+3. Si en esa PC falta el micrófono virtual **VB-CABLE**, te ofrece instalarlo: viene
+   incluido en el `.exe` (sin internet), pero es un driver de Windows y no puede funcionar
+   desde el pendrive: se instala una vez por PC, con su instalador oficial y permiso de
    administrador (Windows pregunta, tocás "Install Driver"). Si Windows lo deja como
    parlante o micrófono predeterminado (y dejás de escuchar la PC), clonavoz vuelve a
-   poner los que tenías. La opción **14** del menú lo quita (para no dejar nada en una PC
-   prestada).
+   poner los que tenías. El mismo instalador lo quita ("Remove Driver"), para no dejar
+   nada en una PC prestada. Si decís que no, igual te traduce lo que te dicen.
+4. Si elegiste escuchar a los demás con su voz clonada, te pregunta si te dieron permiso.
+5. Pone "CABLE Output" como micrófono predeterminado de Windows, así la videollamada lo
+   usa sin que elijas nada (si en la app elegiste otro micrófono, elegí "CABLE Output"),
+   y le pasa a clonavoz tu micrófono de verdad.
+6. Arranca la conversación en las dos direcciones: lo que te dicen aparece traducido en
+   la ventana, como subtítulos (lo tuyo también, más chico), y suena en tus auriculares.
 
-Después aparece el menú: opción **1** para una conversación en videollamada en las dos
-direcciones (en la app elegí "CABLE Output" como micrófono y usá auriculares), **2** para
-solo escuchar traducido lo que suena en la PC, **3** para solo traducir tu voz, **4** para
-escuchar tu traducción vos mismo. Las veces siguientes, el mismo doble clic abre el menú
-directamente; si bajás una versión nueva del .exe, actualiza el programa y conserva tu
-voz y los modelos.
+**DETENER** (o cerrar la ventana) lo para y vuelve a poner tu micrófono de siempre como
+predeterminado; si la PC se apaga de golpe, lo vuelve a poner la próxima vez que abrís
+clonavoz. Arriba en la ventana elegís los idiomas y las voces; "Ventana siempre visible" la
+deja encima de la videollamada. "Más opciones (menú)" abre el menú de consola de siempre
+(`Iniciar.bat`), con todo lo demás: **2** para solo escuchar traducido lo que suena en la
+PC, **3** para solo traducir tu voz, **4** para escuchar tu traducción vos mismo, etc. Si
+bajás una versión nueva del .exe, actualiza el programa y conserva tu voz y los modelos.
+En la versión .zip, la ventana es `Abrir clonavoz.exe`, adentro de la carpeta.
 
 Necesita ~4 GB libres en el pendrive o disco (programa ~1.2 GB + modelos ~2.7 GB) y al
 menos 4 GB de RAM en la computadora (mejor 8 GB). Desde un pendrive USB 3.0 arranca
@@ -340,9 +353,9 @@ bastante más rápido que desde uno USB 2.0.
 
 **Qué queda en la otra computadora: nada tuyo.** Tu muestra de voz, los modelos y los
 idiomas elegidos se guardan en la carpeta `datos` de la versión portable. Lo único que se
-instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (opción 11:
-necesita permisos de administrador; la opción 14 lo quita). Si no podés instalarlo, igual podés usar
-la opción 2 (escuchar traducido lo que te dicen) y la 4 (tu traducción en auriculares).
+instala en esa PC, y solo si lo elegís, es el micrófono virtual VB-CABLE (necesita
+permisos de administrador; su mismo instalador lo quita). Si no podés instalarlo, ACTIVAR
+igual te traduce lo que te dicen, y la opción 4 del menú te deja escuchar tu traducción.
 clonavoz además desactiva la telemetría de las librerías que la traen
 activada (por ejemplo onnxruntime, que si no guardaría un identificador en esa PC). Cuidá
 la carpeta `datos` como cualquier dato personal: tiene tu voz grabada.
@@ -363,7 +376,9 @@ hacen): ahí la llamada se simula con el cable, y la parte de grabar lo que suen
 prueba aparte (`portable/loopback_test.py`). Las
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
 máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 6 del
-menú).
+menú). También se prueba la ventana: se abre (con una captura de pantalla en el artefacto
+`ventana-windows`), y en la máquina con VB-CABLE **ACTIVAR** tiene que arrancar la
+conversación sola y **DETENER** pararla y dejar el micrófono predeterminado como estaba.
 
 Para entender lo que decís se usa **Parakeet** (NVIDIA) si hablás uno de sus 25 idiomas
 europeos (español, inglés, portugués, francés, alemán, italiano, ruso, ucraniano, polaco,
@@ -442,9 +457,11 @@ En algunas PCs Windows muestra "CABLE Input" con un nombre genérico, como
 dispositivo y clonavoz lo detecta igual.
 
 **Apps o páginas que no te dejan elegir el micrófono** (usan el predeterminado de Windows):
-poné "CABLE Output" como micrófono predeterminado en *Panel de control > Sonido > Grabar*
-(opción 13 del menú en la versión portable). clonavoz lo detecta y sigue escuchando tu
-micrófono real; si no lo encuentra, te avisa y te dice cómo elegirlo.
+el botón ACTIVAR de la versión portable pone "CABLE Output" como micrófono predeterminado
+mientras traduce y al detener vuelve a poner el tuyo. A mano: *Panel de control > Sonido >
+Grabar* (opción 13 del menú). clonavoz lo detecta y sigue escuchando tu micrófono real; si
+no lo encuentra, te avisa y te dice cómo elegirlo (`--input-device`, con su número o su
+nombre).
 
 Ojo: al instalar VB-CABLE, Windows a veces deja "CABLE Input" como altavoz
 predeterminado (y dejás de escuchar tu PC) y "CABLE Output" como micrófono
@@ -487,7 +504,8 @@ Primero muestra un medidor de nivel de tu micrófono durante 8 segundos mientras
 (tiene que moverse y decir `VOZ DETECTADA`); después reproduce 3 pitidos en el micrófono
 virtual y comprueba que lleguen a la otra punta del cable (por ejemplo, a "CABLE Output").
 Si algo falla, te dice la causa probable. Podés elegir otros dispositivos con
-`--input-device N` / `--output-device N` (los números salen de `clonavoz devices`).
+`--input-device N` / `--output-device N` (los números salen de `clonavoz devices`; el
+micrófono también se puede elegir por su nombre o una parte, ej. `--input-device realtek`).
 
 ### 3. Graba una muestra de tu voz (una sola vez)
 
@@ -604,7 +622,8 @@ mencionadas); con XTTS-v2, también ese modelo.
 
 ## Limitaciones conocidas / roadmap
 
-- No hay interfaz gráfica todavía (menú y línea de comandos).
+- La ventana (con el botón ACTIVAR) es solo para Windows; en Linux y macOS se usa la
+  línea de comandos.
 - Lo que te dicen se toma de todo lo que suena en la PC: si suena otra cosa (un video,
   notificaciones), también se traduce. Cerrá lo que no uses durante la llamada.
 - La primera frase corta después de que la otra persona cambia de idioma a veces se

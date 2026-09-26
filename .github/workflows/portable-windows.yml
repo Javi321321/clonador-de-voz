@@ -47,10 +47,15 @@ jobs:
           $zip = "dist\clonavoz-portable\vbcable\VBCABLE_Driver_Pack45.zip"
           if (-not (Test-Path $zip)) { throw "falta el paquete de VB-CABLE" }
           "SHA256 del paquete incluido: $((Get-FileHash -Algorithm SHA256 $zip).Hash)"
+          if (-not (Test-Path "dist\clonavoz-portable\Abrir clonavoz.exe")) { throw "falta la ventana en la carpeta" }
           powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Verificar
           if ($LASTEXITCODE -ne 1) { throw "en esta máquina no está instalado y dijo otra cosa (código $LASTEXITCODE)" }
           powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Predeterminados
           if ($LASTEXITCODE -ne 0) { throw "no se pudieron leer los dispositivos predeterminados" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -UsarCable
+          if ($LASTEXITCODE -ne 1) { throw "sin VB-CABLE tenía que avisar que no pudo (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Restaurar
+          if ($LASTEXITCODE -ne 0) { throw "sin nada que volver atrás tenía que salir bien (código $LASTEXITCODE)" }
 
       - name: El menú de Iniciar.bat abre y sale con la opción 0
         shell: cmd
@@ -60,19 +65,34 @@ jobs:
         run: |
           echo 0| call dist\clonavoz-portable\Iniciar.bat || exit /b 1
 
-      - name: clonavoz.exe se instala solo en su carpeta, como en un pendrive, y abre el menú
+      - name: clonavoz.exe se instala solo en su carpeta, como en un pendrive, y abre la ventana
         shell: cmd
         timeout-minutes: 15
-        env:
-          CLONAVOZ_SIN_DESCARGA: "1"
         run: |
           set "PATH=%SystemRoot%\System32;%SystemRoot%"
           mkdir "%RUNNER_TEMP%\pendrive"
           copy dist\clonavoz.exe "%RUNNER_TEMP%\pendrive\" > nul
-          "%RUNNER_TEMP%\pendrive\clonavoz.exe" --solo-instalar || exit /b 1
+          rem Es un programa de ventana: lo que cuenta sale solo si se lo redirige a un archivo.
+          "%RUNNER_TEMP%\pendrive\clonavoz.exe" --solo-instalar > "%RUNNER_TEMP%\instalar.txt"
+          set "CODIGO=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\instalar.txt"
+          if not "%CODIGO%"=="0" exit /b 1
           type "%RUNNER_TEMP%\pendrive\clonavoz\version.txt" || exit /b 1
           call "%RUNNER_TEMP%\pendrive\clonavoz\clonavoz.bat" --help > nul || exit /b 1
-          echo 0| "%RUNNER_TEMP%\pendrive\clonavoz.exe" || exit /b 1
+          if not exist "%RUNNER_TEMP%\pendrive\clonavoz\Abrir clonavoz.exe" exit /b 1
+          mkdir "%RUNNER_TEMP%\ventana"
+          "%RUNNER_TEMP%\pendrive\clonavoz.exe" --prueba --captura "%RUNNER_TEMP%\ventana\ventana.png" > "%RUNNER_TEMP%\ventana\ventana.txt"
+          set "CODIGO=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\ventana\ventana.txt"
+          if not "%CODIGO%"=="0" exit /b 1
+          findstr /c:"VENTANA: abierta" "%RUNNER_TEMP%\ventana\ventana.txt" > nul || exit /b 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ventana-windows
+          path: ${{ runner.temp }}/ventana
+          if-no-files-found: warn
 
       - name: Traducir y clonar una voz de punta a punta (sin micrófono)
         shell: cmd
@@ -145,6 +165,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "no detectó VB-CABLE instalado (código $LASTEXITCODE)" }
           powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Predeterminados
           if ($LASTEXITCODE -ne 0) { throw "no se pudieron leer ni volver a poner los predeterminados" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -UsarCable
+          if ($LASTEXITCODE -ne 0) { throw "no pudo poner CABLE Output como micrófono predeterminado (código $LASTEXITCODE)" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\clonavoz-portable\vbcable.ps1 -Restaurar
+          if ($LASTEXITCODE -ne 0) { throw "no pudo volver al micrófono de antes (código $LASTEXITCODE)" }
 
       - name: Descargar los modelos en la carpeta portable (como lo hace el usuario)
         shell: cmd
@@ -163,6 +187,17 @@ jobs:
           PYTHONUTF8: "1"
           PYTHONNOUSERSITE: "1"
         run: dist\clonavoz-portable\python\python.exe portable\audio_test.py dist\clonavoz-portable "%RUNNER_TEMP%\grabaciones" || exit /b 1
+
+      - name: "La ventana: ACTIVAR arranca la conversación sola y DETENER la para"
+        shell: cmd
+        timeout-minutes: 10
+        run: |
+          rem Con los modelos y la voz que dejó la prueba anterior. Contesta "no" a todo lo que pregunta.
+          "dist\clonavoz-portable\Abrir clonavoz.exe" --prueba-activar --captura "%RUNNER_TEMP%\grabaciones\ventana_activa.png" > "%RUNNER_TEMP%\grabaciones\ventana_activa.txt"
+          set "CODIGO=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\grabaciones\ventana_activa.txt"
+          if not "%CODIGO%"=="0" exit /b 1
+          findstr /c:"ACTIVO" "%RUNNER_TEMP%\grabaciones\ventana_activa.txt" > nul || exit /b 1
 
       - uses: actions/upload-artifact@v4
         if: always()
