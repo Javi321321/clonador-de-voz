@@ -59,6 +59,15 @@ def run(exclude: bool) -> None:
     stream.start()
     print(f"  {stream.description} | sin clonavoz: {stream.excludes_own_audio}", flush=True)
     check(stream.excludes_own_audio == exclude, "se abrió en el modo pedido")
+    # Control, por otro camino: lo que sale del cable virtual (la salida
+    # predeterminada de estas máquinas) tiene que tener los dos tonos.
+    cable = [d["index"] for d in sd.query_devices() if d["max_input_channels"] > 0 and "cable output" in d["name"].lower()]
+    control: list[np.ndarray] = []
+    recorder = None
+    if cable:
+        recorder = sd.InputStream(device=cable[0], samplerate=RATE, channels=1, dtype="float32",
+                                  callback=lambda data, *_: control.append(data[:, 0].copy()))
+        recorder.start()
     time.sleep(0.5)
     play_from_other_app(OTHER_APP, 1.5)
     split = len(frames)
@@ -66,6 +75,13 @@ def run(exclude: bool) -> None:
     sd.wait()
     time.sleep(0.5)
     stream.close()
+    if recorder is not None:
+        recorder.stop()
+        recorder.close()
+        heard = np.concatenate(control) if control else np.zeros(0, dtype=np.float32)
+        print(f"  control (CABLE Output): otro programa {tone_db(heard, OTHER_APP):.0f} dB, "
+              f"clonavoz {tone_db(heard, CLONAVOZ):.0f} dB")
+    print(f"  Windows entregó: {stream.diagnostics}")
     elapsed = time.monotonic() - started
     audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.float32)
     seconds = len(audio) / RATE

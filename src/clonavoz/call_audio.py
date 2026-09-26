@@ -237,6 +237,8 @@ class _WasapiLoopback:
         self.rate = self.channels = 0
         self.dtype = np.dtype(np.float32)
         self.block_align = 0
+        # Para diagnosticar: paquetes que mandó Windows y cuántos venían marcados como silencio.
+        self.packets = self.silent_packets = 0
 
     def open(self) -> None:
         try:
@@ -346,7 +348,9 @@ class _WasapiLoopback:
                     break
                 get_buffer(byref(data), byref(frames), byref(flags), byref(position), byref(qpc))
                 count = frames.value
+                self.packets += 1
                 if flags.value & _BUFFER_SILENT or not data.value:
+                    self.silent_packets += 1
                     raw = bytes(count * self.block_align)
                 else:
                     raw = ctypes.string_at(data.value, count * self.block_align)
@@ -400,6 +404,18 @@ class CallAudioStream:
         self._thread: threading.Thread | None = None
         self._error: BaseException | None = None
         self._ready = threading.Event()
+        self._wasapi: _WasapiLoopback | None = None
+
+    @property
+    def diagnostics(self) -> str:
+        """Qué llegó de Windows (para encontrar problemas)."""
+        w = self._wasapi
+        if w is None:
+            return "sin abrir"
+        return (
+            f"{w.rate} Hz, {w.channels} canal(es), {w.dtype.name}; {w.packets} paquetes "
+            f"({w.silent_packets} marcados como silencio)"
+        )
 
     def start(self) -> None:
         if sys.platform != "win32":
@@ -429,7 +445,7 @@ class CallAudioStream:
         )
 
     def _run(self, exclude: bool) -> None:
-        wasapi = _WasapiLoopback(exclude)
+        wasapi = self._wasapi = _WasapiLoopback(exclude)
         try:
             wasapi.open()
             self._assembler = FrameAssembler(
