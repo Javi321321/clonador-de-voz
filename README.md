@@ -81,18 +81,20 @@ clonavoz trabaja como un intérprete simultáneo:
 - **Tu voz empieza a sonar mientras se genera**, y la parte siguiente se prepara mientras
   suena la anterior, así no quedan huecos.
 - **Si la traducción se atrasa, se apura**: como un intérprete, habla un poco más rápido
-  (hasta 1.3 veces, sin cambiar el tono de tu voz) y acorta las pausas hasta alcanzarte.
+  (de 1.1 a 1.3 veces según cuánto se atrasó, sin cambiar el tono de tu voz) y acorta
+  las pausas, sin esperar a que la frase esté entera; vuelve a la velocidad normal apenas
+  te alcanza.
 - El micrófono y la salida usan buffers de audio chicos: ~0.1 s menos en cada uno.
 
 Medido reproduciendo en tiempo real grabaciones reales en español, traducidas al inglés
-con la voz natural, sin GPU:
+con la voz natural, sin GPU (de una corrida a otra varía unos ±0.3 s):
 
 | | 4 núcleos | 2 núcleos |
 |---|---|---|
-| Conversación (8 frases cortas, 19 s): la primera frase empieza a sonar | 0.9 s después de decirla | 1.0 s |
-| ... y la traducción termina | 3.3 s después de que terminaste | 4.1 s |
-| Hablando de corrido (28 s, casi sin pausas): empieza a sonar | a los 3.4 s, mientras seguís hablando | a los 3.6 s |
-| ... y la traducción termina | 3.1 s después de que terminaste | 3.2 s |
+| Conversación (8 frases cortas, 19 s): la primera frase empieza a sonar | 0.8 s después de decirla | 0.9 s |
+| ... y la traducción termina | 3.2 s después de que terminaste | 4.2 s |
+| Hablando de corrido (28 s, casi sin pausas): empieza a sonar | a los 3.3 s, mientras seguís hablando | a los 3.5 s |
+| ... y la traducción termina | 3.2 s después de que terminaste | 3.2 s |
 
 En la misma prueba, antes de estos cambios, la conversación terminaba de sonar 7.5 s
 después y, hablando de corrido, la traducción recién empezaba a sonar a los 9.6 s.
@@ -192,7 +194,8 @@ de GitHub (4 núcleos, sin GPU): se arma la versión portable, se instala VB-CAB
 "habla" en español por un dispositivo de grabación de Windows, como si fuera tu micrófono.
 `test-audio`, `enroll` y `run` tienen que funcionar, y lo que llega a "CABLE Output" (lo
 que escucharía Zoom) tiene que ser la traducción en inglés y entenderse. En esa máquina la
-traducción empezó a sonar entre 2 y 3 segundos después de terminar cada frase. Las
+traducción empezó a sonar ~1.5 segundos después de terminar cada frase (con la voz
+liviana: ahí no se descarga la natural, que necesita tu token). Las
 grabaciones quedan en la pestaña Actions (artefacto `prueba-audio-real-grabaciones`). Esa
 máquina no tiene un micrófono físico: para el tuyo, usá `clonavoz test-audio` (opción 3 del
 menú).
@@ -406,9 +409,9 @@ mencionadas); con XTTS-v2, también ese modelo.
 ## Limitaciones conocidas / roadmap
 
 - No hay interfaz gráfica todavía (solo línea de comandos).
-- Parakeet reconoce solo en qué idioma hablás (no se le puede fijar): en pedazos muy
-  cortos a veces lo confunde (por ejemplo, español con portugués), y ese pedazo sale
-  mal traducido.
+- Parakeet detecta por su cuenta en qué idioma hablás (no se le puede indicar): en
+  pedazos muy cortos a veces lo confunde (por ejemplo, español con portugués), y ese
+  pedazo sale mal traducido.
 - La voz clonada copia tu voz, pero la entonación de cada frase la pone el modelo: la
   voz natural la toma de cómo hablás en tu muestra, pero no copia la emoción exacta con
   la que dijiste cada frase.

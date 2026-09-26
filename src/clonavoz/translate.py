@@ -22,6 +22,7 @@ from __future__ import annotations
 import gc
 import shutil
 import tempfile
+import warnings
 
 # En Windows, torch y ctranslate2 traen cada uno su copia de libiomp5md.dll
 # (OpenMP): cargando torch primero, ctranslate2 reutiliza esa misma copia en vez
@@ -105,7 +106,9 @@ def download_opus(source: str, target: str) -> bool:
             repo, local_dir=tmp, allow_patterns=["config.json", "generation_config.json", weights, *tokenizer_files]
         )
         converter = ctranslate2.converters.TransformersConverter(tmp, copy_files=tokenizer_files)
-        converter.convert(str(folder), quantization="int8", force=True)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*sacremoses")  # ver _OpusTranslator
+            converter.convert(str(folder), quantization="int8", force=True)
     finally:
         transformers_logging.set_verbosity(verbosity)
         # En Windows no se puede borrar un archivo que todavía está abierto:
@@ -120,12 +123,12 @@ class _OpusTranslator:
         from transformers import MarianTokenizer
 
         folder = str(_opus_dir(source, target))
-        verbosity = transformers_logging.get_verbosity()
-        transformers_logging.set_verbosity_error()  # sin el aviso "Recommended: pip install sacremoses"
-        try:
+        with warnings.catch_warnings():
+            # Sin el paquete sacremoses (normaliza comillas y guiones raros, que
+            # el reconocimiento de voz no produce), transformers avisa
+            # "Recommended: pip install sacremoses" en cada arranque.
+            warnings.filterwarnings("ignore", message=".*sacremoses")
             self._tokenizer = MarianTokenizer.from_pretrained(folder)
-        finally:
-            transformers_logging.set_verbosity(verbosity)
         self._model = ctranslate2.Translator(
             folder, device=device, compute_type="int8_float16" if device == "cuda" else "int8", intra_threads=2
         )

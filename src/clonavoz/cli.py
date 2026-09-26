@@ -283,10 +283,11 @@ def _cmd_run(args: argparse.Namespace) -> None:
     mic_name = audio_devices.virtual_mic_name(output.name)
     if mic_name:
         print(f"En Zoom/Meet/Teams/Discord elegí como micrófono: {mic_name}")
-    print(
-        "Escuchando... hablá normalmente: cada frase sale traducida por el micrófono virtual "
-        "unos segundos después de que la terminás. Ctrl+C para detener."
-    )
+    if pipeline.simultaneous:
+        when = "cada idea sale traducida alrededor de un segundo después de que la terminás de decir"
+    else:
+        when = "cada frase sale traducida unos segundos después de que la terminás"
+    print(f"Escuchando... hablá normalmente: {when}, por el micrófono virtual. Ctrl+C para detener.")
     try:
         _show_live_status(pipeline, status)
     except KeyboardInterrupt:

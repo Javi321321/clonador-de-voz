@@ -34,7 +34,7 @@ from .audio_io import AudioDeviceError, AudioOutput, MicrophoneStream
 from .config import PerformanceProfile
 from .languages import Language, get_language
 from .simultaneous import ClauseSplitter
-from .timestretch import shorten_pauses, speed_up
+from .timestretch import SpeedUp, shorten_pauses, speed_up
 from .translate import Translator
 from .vad import StreamingVAD
 from .voice_clone import VoiceSynthesizer
@@ -247,12 +247,11 @@ class LiveVoicePipeline:
     def _catch_up_speed(self, pending: float) -> float:
         """Si la traducción va atrasada (`pending`: segundos que faltan sonar), un
         poco más rápido y sin cambiar el tono, como un intérprete que se apura
-        para alcanzarte."""
-        if pending > 3.0:
-            return 1.3
-        if pending > 1.5:
-            return 1.15
-        return 1.0
+        para alcanzarte: más cuanto más atrasada va (1.1 veces con 1 s de
+        atraso, hasta 1.3 veces con 3 s o más)."""
+        if pending <= 0.5:
+            return 1.0
+        return min(1.3, 1.0 + 0.1 * pending)
 
     def _streamed_chunks(self):
         while True:
@@ -266,18 +265,31 @@ class LiveVoicePipeline:
             self._played(len(item[1]) / self._stream_rate)
 
     def _play_phrase_stream(self, rate: int) -> None:
-        """Una frase que llega por pedacitos. Si la traducción viene atrasada, la
-        frase ya está generada entera (se genera más rápido de lo que suena):
-        se junta y se dice un poco más rápido; si no, suena a medida que llega."""
+        """Una frase que llega por pedacitos: suena a medida que llega. Si la
+        traducción viene atrasada, se dice un poco más rápido mientras tanto,
+        sin esperar a que la frase esté entera."""
         self._stream_rate = rate
-        speed = self._catch_up_speed(self._backlog)
-        if speed == 1.0:
-            self.output.play_stream(self._streamed_chunks(), rate)
-            return
-        chunks = list(self._streamed_chunks())
-        if chunks:
-            audio = np.concatenate(chunks)
-            self.output.play(speed_up(shorten_pauses(audio, rate), rate, speed), rate)
+        chunks = self._streamed_chunks()
+        if self._catch_up_speed(self._backlog) > 1.0:
+            chunks = self._faster(chunks, rate)
+        self.output.play_stream(chunks, rate)
+
+    def _faster(self, chunks, rate: int):
+        """Los pedazos, más rápidos mientras la traducción siga atrasada (y los
+        silencios, el doble: así se acortan las pausas); apenas te alcanza, el
+        resto de la frase sale a la velocidad normal."""
+        stretch = SpeedUp(rate)
+        for chunk in chunks:
+            speed = self._catch_up_speed(self._backlog)
+            if speed == 1.0:
+                yield stretch.finish()
+                yield chunk
+                yield from chunks
+                return
+            silent = len(chunk) > 0 and float(np.max(np.abs(chunk))) < 0.01
+            stretch.speed = 2 * speed if silent else speed
+            yield stretch.push(chunk)
+        yield stretch.finish()
 
     def _played(self, seconds: float) -> None:
         with self._backlog_lock:

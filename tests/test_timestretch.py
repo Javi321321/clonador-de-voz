@@ -7,7 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from clonavoz.timestretch import shorten_pauses, speed_up  # noqa: E402
+from clonavoz.timestretch import SpeedUp, shorten_pauses, speed_up  # noqa: E402
 
 RATE = 24000
 
@@ -35,6 +35,32 @@ def test_normal_speed_or_tiny_audio_is_left_as_is():
     np.testing.assert_array_equal(speed_up(audio, RATE, 1.0), audio)
     tiny = _tone(0.05)
     np.testing.assert_array_equal(speed_up(tiny, RATE, 1.3), tiny)
+
+
+def test_by_pieces_it_gives_the_same_as_all_at_once():
+    rng = np.random.default_rng(0)
+    audio = _tone(1.5) + 0.05 * rng.standard_normal(int(1.5 * RATE)).astype(np.float32)
+    whole = speed_up(audio, RATE, 1.3)
+    stretch, pieces, i = SpeedUp(RATE, 1.3), [], 0
+    for size in rng.integers(50, 4000, size=1000):
+        pieces.append(stretch.push(audio[i : i + size]))
+        i += size
+        if i >= len(audio):
+            break
+    pieces.append(stretch.finish())
+    np.testing.assert_allclose(np.concatenate(pieces), whole, atol=1e-6)
+
+
+def test_the_speed_can_change_on_the_way_without_jumps():
+    audio = _tone(2.0)
+    stretch = SpeedUp(RATE, 1.3)
+    first = stretch.push(audio[: RATE])
+    stretch.speed = 1.0
+    rest = np.concatenate([stretch.push(audio[RATE:]), stretch.finish()])
+    out = np.concatenate([first, rest])
+    assert abs(len(first) / RATE - 1.0 / 1.3) < 0.05
+    assert abs(len(out) / RATE - (1.0 / 1.3 + 1.0)) < 0.05
+    assert np.max(np.abs(np.diff(out))) < 0.05
 
 
 def test_long_pauses_in_the_middle_are_shortened():
